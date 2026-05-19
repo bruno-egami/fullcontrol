@@ -50,7 +50,9 @@ def import_printer(printer_name: str, user_overrides: dict):
     starting_procedure_steps = []
     starting_procedure_steps.append(ManualGcode(text=data['start_gcode']))
     starting_procedure_steps.append(ManualGcode(
-        text=f'; Time to print!!!!!\n; Printer name: {printer_name}\n; GCode created with FullControl - tell us what you\'re printing!\n; info@fullcontrol.xyz or tag FullControlXYZ on Twitter/Instagram/LinkedIn/Reddit/TikTok \n; New terms added to the hard-coded start_gcode ensure user-overrides are implemented:'))
+        text=f'; Time to print!!!!!\n; Printer: {printer_name}\n'
+        f'; GCode by FullControl\n; info@fullcontrol.xyz\n'
+        f'; New terms in start_gcode ensure user-overrides are applied:'))
     starting_procedure_steps.append(Extruder(relative_gcode=data["relative_e"]))
     if 'bed_temp' in user_overrides.keys() and 'bed_temp' not in original_start_gcode:
         starting_procedure_steps.append(Buildplate(temp=data["bed_temp"], wait=True))

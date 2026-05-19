@@ -9,11 +9,11 @@ M220 S100 ; reset speed
 G28 ; home all axes""",
     "end_gcode": """;ENDGCODE
 G92 E0.0
-G91          ; Altera a impressora para o modo de coordenadas relativas.
-G1 Z10 F500  ; Move o eixo Z 10mm para cima a partir da posição atual (Velocidade: 20mm/s).
-G90          ; Retorna a impressora para o modo de coordenadas absolutas (MUITO IMPORTANTE).
-M84          ; desliga motores
+G91          ; Modo relativo
+G1 Z10 F500  ; Sobe Z 10mm
+G90          ; Modo absoluto
+M84          ; Desliga motores
 M300 P200    ; Bip final
-M107         ; desliga fan
+M107         ; Desliga fan
 M117 Print finish."""
 }

@@ -16,15 +16,18 @@ comprimento_y = 60.0               # Comprimento físico da peça no eixo Y
 z_max_desejado = 15.0              # Altura final total da peça no eixo Z
 
 # --- Parâmetros de Perímetro (Paredes) ---
-num_perimetros = 1                 # Número de perímetros/paredes externas (ex: 1, 2, 3...)
+num_perimetros = 2                 # Número de perímetros/paredes externas (ex: 1, 2, 3...)
 
 # --- Parâmetros de Preenchimento (Infill) ---
-infill_percent = 100.0              # Densidade do preenchimento (0% a 100%)
+infill_percent = 0.0              # Densidade do preenchimento (0% a 100%)
 sobreposicao_infill = 0.5          # mm (Sobreposição do infill na parede interna para fusão perfeita)
 infill_pattern = 'zigzag'            # Opções: 'zigzag' (Y), 'grid' (X/Y), 'concentric' (anéis), 'gyroid' (senoide 3D)
 
 # --- Controle de Trajetória ---
 alternar_ordem_camadas = False     # True: Ímpares fazem Infill primeiro. False: Sempre faz Perímetro primeiro.
+
+# --- Controle de Rotação de Infill ---
+angulo_infill_base = 45.0          # Graus. Padrões alternarão entre +ângulo e -ângulo a cada camada.
 
 # --- Parâmetros Específicos para o Padrão Giroide ---
 amplitude_gyroid = 2.0             # mm (Largura/amplitude da onda senoidal do giroide)
@@ -35,8 +38,10 @@ velocidade_impressao = 600         # mm/min (10 mm/s) - recomendada vazão lenta
 velocidade_travel = 3000           # mm/min (50 mm/s) - velocidade para movimentos livres de extrusão
 
 # --- Controle de Fluxo (Extrusão) ---
-fluxo_camada_inicial = 90.0        # % (Percentual de fluxo na 1ª camada, reduz o excesso de material/pé de elefante)
-fluxo_demais_camadas = 100.0       # % (Percentual de fluxo a partir da camada 1)
+fluxo_perimetro_primeira_camada = 90.0
+fluxo_infill_primeira_camada = 90.0
+fluxo_perimetro_demais_camadas = 100.0
+fluxo_infill_demais_camadas = 100.0
 
 # ==============================================================================
 # 2. INICIALIZAÇÃO E COMANDOS DE FIRMWARE
@@ -44,7 +49,7 @@ fluxo_demais_camadas = 100.0       # % (Percentual de fluxo a partir da camada 1
 
 steps = []
 steps.append(fc.Printer(print_speed=velocidade_impressao, travel_speed=velocidade_travel))
-steps.append(fc.ManualGcode(text="M204 P500 T500 ; Configura aceleração para 500 mm/s²"))
+steps.append(fc.ManualGcode(text="M204 P500 T500"))
 steps.append(fc.ExtrusionGeometry(area_model='rectangle', width=largura_extrusao, height=altura_camada))
 
 steps.append(fc.ManualGcode(text="; --- PURGA PERSONALIZADA FORA DA MESA (X300 Y0 Z0) ---"))
@@ -68,36 +73,12 @@ y_innermost_min, y_innermost_max = y_min + innermost_offset, y_max - innermost_o
 
 espacamento_alvo = (largura_extrusao * 0.95) / (infill_percent / 100.0) if infill_percent > 0 else 9999.0
 
-# --- INFILL VERTICAL (X) ---
-x_infill_min = x_innermost_min + largura_extrusao * 0.95
-x_infill_max = x_innermost_max - largura_extrusao * 0.95
-espaco_disponivel_x = x_infill_max - x_infill_min
-
-if infill_percent <= 0 or espaco_disponivel_x <= 0:
-    num_linhas_infill_x = 0
-    x_coords_infill = []
-else:
-    num_linhas_infill_x = max(2, int(round(espaco_disponivel_x / espacamento_alvo)) + 1)
-    x_coords_infill = [x_infill_min + i * (espaco_disponivel_x) / (num_linhas_infill_x - 1) for i in range(num_linhas_infill_x)]
-
-y_infill_min_vert = y_innermost_min + recuo - sobreposicao_infill
-y_infill_max_vert = y_innermost_max - recuo + sobreposicao_infill
-
-# --- INFILL HORIZONTAL (Y) ---
-y_infill_min = y_innermost_min + largura_extrusao * 0.95
-y_infill_max = y_innermost_max - largura_extrusao * 0.95
-espaco_disponivel_y = y_infill_max - y_infill_min
-
-if infill_percent <= 0 or espaco_disponivel_y <= 0:
-    num_linhas_infill_y = 0
-    y_coords_infill = []
-else:
-    num_linhas_infill_y = max(2, int(round(espaco_disponivel_y / espacamento_alvo)) + 1)
-    # Lista invertida (Top para Bottom)
-    y_coords_infill = [y_infill_max - i * (espaco_disponivel_y) / (num_linhas_infill_y - 1) for i in range(num_linhas_infill_y)]
-
-x_infill_min_horiz = x_innermost_min + recuo - sobreposicao_infill
-x_infill_max_horiz = x_innermost_max - recuo + sobreposicao_infill
+# --- INFILL BOUNDS (Limites de Interseção) ---
+# A caixa delimitadora do Infill recua metade do bico em relação ao último perímetro e avança a sobreposição
+x_infill_bound_min = x_innermost_min + recuo - sobreposicao_infill
+x_infill_bound_max = x_innermost_max - recuo + sobreposicao_infill
+y_infill_bound_min = y_innermost_min + recuo - sobreposicao_infill
+y_infill_bound_max = y_innermost_max - recuo + sobreposicao_infill
 
 # --- INFILL CONCÊNTRICO ---
 offsets_concentricos = []
@@ -117,19 +98,115 @@ num_camadas = math.ceil(z_max_desejado / altura_camada)
 # MOTOR DINÂMICO DE TRAJETÓRIAS (Zero Travels)
 # ==============================================================================
 
-# Cria pontos segmentados matematicamente aproximando uma função seno para o Gyroid
-def gerar_onda_y(x_c, y_start, y_end, z, phase, amplitude, comprimento_onda):
+# Detecção automática de continuidade: se o próximo ponto estiver longe, faz uma viagem vazia (Travel)
+def adicionar_caminho_seguro(steps, pts):
+    if not pts: return
+    lx, ly = get_last_point(steps)
+    dist = math.hypot(pts[0].x - lx, pts[0].y - ly)
+    if dist > 0.5: # Quebra de continuidade detectada (distância maior que meio mm)
+        steps.append(fc.Extruder(on=False))
+        steps.append(pts[0])
+        steps.append(fc.Extruder(on=True))
+        steps.extend(pts[1:])
+    else:
+        steps.extend(pts)
+
+def orientar_caminho(pts, start_x, start_y):
+    if not pts: return pts
+    dist_start = math.hypot(pts[0].x - start_x, pts[0].y - start_y)
+    dist_end = math.hypot(pts[-1].x - start_x, pts[-1].y - start_y)
+    if dist_end < dist_start:
+        pts.reverse()
+    return pts
+
+def intersect_line_rect_param(v, theta_rad, Xc, Yc, Xmin, Xmax, Ymin, Ymax):
+    cos_t = math.cos(theta_rad)
+    sin_t = math.sin(theta_rad)
+    t_vals = []
+    
+    # Interseções com as paredes verticais (X)
+    if abs(cos_t) > 1e-6:
+        t1 = (Xmin - Xc + v * sin_t) / cos_t
+        y1 = Yc + v * cos_t + t1 * sin_t
+        if Ymin - 1e-5 <= y1 <= Ymax + 1e-5: t_vals.append(t1)
+            
+        t2 = (Xmax - Xc + v * sin_t) / cos_t
+        y2 = Yc + v * cos_t + t2 * sin_t
+        if Ymin - 1e-5 <= y2 <= Ymax + 1e-5: t_vals.append(t2)
+            
+    # Interseções com as paredes horizontais (Y)
+    if abs(sin_t) > 1e-6:
+        t3 = (Ymin - Yc - v * cos_t) / sin_t
+        x3 = Xc - v * sin_t + t3 * cos_t
+        if Xmin - 1e-5 <= x3 <= Xmax + 1e-5: t_vals.append(t3)
+            
+        t4 = (Ymax - Yc - v * cos_t) / sin_t
+        x4 = Xc - v * sin_t + t4 * cos_t
+        if Xmin - 1e-5 <= x4 <= Xmax + 1e-5: t_vals.append(t4)
+            
+    if not t_vals: return None
+    t_min, t_max = min(t_vals), max(t_vals)
+    if t_max - t_min < 1e-5: return None
+    
+    p1 = (Xc - v * sin_t + t_min * cos_t, Yc + v * cos_t + t_min * sin_t)
+    p2 = (Xc - v * sin_t + t_max * cos_t, Yc + v * cos_t + t_max * sin_t)
+    return p1, p2, t_min, t_max
+
+def gerar_infill_rotacionado(angulo_graus, x_min_b, x_max_b, y_min_b, y_max_b, z, espacamento, pattern, phase, amplitude, comprimento_onda):
+    theta = math.radians(angulo_graus)
+    Xc = (x_min_b + x_max_b) / 2
+    Yc = (y_min_b + y_max_b) / 2
+    
+    # Encontra os limites da varredura (v_min e v_max) projetando as 4 quinas
+    corners = [(x_min_b, y_min_b), (x_max_b, y_min_b), (x_max_b, y_max_b), (x_min_b, y_max_b)]
+    v_vals = [-(x - Xc)*math.sin(theta) + (y - Yc)*math.cos(theta) for x, y in corners]
+    v_min, v_max = min(v_vals), max(v_vals)
+    
     pts = []
-    passo_y = 1.0 # Densidade da onda: 1mm de segmentação garante curvaturas suaves
-    dist = abs(y_end - y_start)
-    num_pts = max(10, int(dist / passo_y))
-    # Para garantir o cruzamento, a fase depende estritamente da coordenada global
-    y_anchor = y_centro - comprimento_y / 2
-    for j in range(num_pts + 1):
-        t = j / num_pts
-        y = y_start + t * (y_end - y_start)
-        x = x_c + amplitude * math.sin(2 * math.pi * (y - y_anchor) / comprimento_onda + phase)
-        pts.append(fc.Point(x=x, y=y, z=z))
+    # Alinha v_start a um múltiplo do espaçamento para os padrões casarem entre camadas!
+    v_current = math.ceil(v_min / espacamento) * espacamento
+    flip = False
+    
+    while v_current <= v_max + 1e-5:
+        segment = intersect_line_rect_param(v_current, theta, Xc, Yc, x_min_b, x_max_b, y_min_b, y_max_b)
+        if segment:
+            p1, p2, t_min, t_max = segment
+                
+            if pattern == 'gyroid':
+                # Estende a varredura além da parede para que a onda ultrapasse o limite
+                margin = amplitude + 1.0
+                t_start = t_max + margin if flip else t_min - margin
+                t_end = t_min - margin if flip else t_max + margin
+                
+                dist = abs(t_end - t_start)
+                num_pts = max(10, int(dist / 1.0))
+                
+                for j in range(num_pts + 1):
+                    t_val = t_start + j * ((t_end - t_start) / num_pts)
+                    x_base = Xc - v_current * math.sin(theta) + t_val * math.cos(theta)
+                    y_base = Yc + v_current * math.cos(theta) + t_val * math.sin(theta)
+                    
+                    t_along_line = (x_base - Xc) * math.cos(theta) + (y_base - Yc) * math.sin(theta)
+                    wave_offset = amplitude * math.sin(2 * math.pi * t_along_line / comprimento_onda + phase)
+                    
+                    x_final = x_base - wave_offset * math.sin(theta)
+                    y_final = y_base + wave_offset * math.cos(theta)
+                    
+                    # Clamp rígido contra a parede: "esmaga" a onda excedente contra a parede
+                    x_clamped = max(x_min_b, min(x_max_b, x_final))
+                    y_clamped = max(y_min_b, min(y_max_b, y_final))
+                    
+                    # Evita duplicar pontos perfeitamente iguais devido ao clamp
+                    if not pts or abs(pts[-1].x - x_clamped) > 1e-4 or abs(pts[-1].y - y_clamped) > 1e-4:
+                        pts.append(fc.Point(x=x_clamped, y=y_clamped, z=z))
+            else: # Zigzag e Grid
+                p_start, p_end = (p2, p1) if flip else (p1, p2)
+                pts.append(fc.Point(x=p_start[0], y=p_start[1], z=z))
+                pts.append(fc.Point(x=p_end[0], y=p_end[1], z=z))
+                
+        v_current += espacamento
+        flip = not flip
+        
     return pts
 
 # Identifica matematicamente em qual dos 4 quadrantes lógicos (Left/Top) o bico está
@@ -207,42 +284,7 @@ def gerar_perimetros_dinamicos(num_perim, x_min_b, x_max_b, y_min_b, y_max_b, z,
     is_top = (idx_start == 0 or idx_start == 3)
     return pts, is_left, is_top
 
-def gerar_infill_vertical_dinamico(x_coords, y_min, y_max, z, start_left, start_top, pattern, phase, amplitude, comp_onda):
-    if len(x_coords) == 0: return []
-    pts = []
-    x_range = range(len(x_coords)) if start_left else range(len(x_coords)-1, -1, -1)
-    
-    for idx, i in enumerate(x_range):
-        x = x_coords[i]
-        go_down = (idx % 2 == 0) if start_top else (idx % 2 != 0)
-        y_start, y_end = (y_max, y_min) if go_down else (y_min, y_max)
-        
-        if pattern == 'gyroid':
-            pts.extend(gerar_onda_y(x, y_start, y_end, z, phase, amplitude, comp_onda))
-        else:
-            if idx == 0: pts.append(fc.Point(x=x, y=y_start, z=z))
-            pts.append(fc.Point(x=x, y=y_end, z=z))
-            
-        if idx < len(x_coords) - 1:
-            pts.append(fc.Point(x=x_coords[x_range[idx+1]], y=y_end, z=z))
-    return pts
 
-def gerar_infill_horizontal_dinamico(y_coords, x_min, x_max, z, start_left, start_top):
-    if len(y_coords) == 0: return []
-    pts = []
-    y_range = range(len(y_coords)) if start_top else range(len(y_coords)-1, -1, -1)
-    
-    for idx, i in enumerate(y_range):
-        y = y_coords[i]
-        go_right = (idx % 2 == 0) if start_left else (idx % 2 != 0)
-        x_start, x_end = (x_min, x_max) if go_right else (x_max, x_min)
-        
-        if idx == 0: pts.append(fc.Point(x=x_start, y=y, z=z))
-        pts.append(fc.Point(x=x_end, y=y, z=z))
-        
-        if idx < len(y_coords) - 1:
-            pts.append(fc.Point(x=x_end, y=y_coords[y_range[idx+1]], z=z))
-    return pts
 
 # ==============================================================================
 # 4. GERAÇÃO DA PEÇA (Caminho Contínuo Total)
@@ -258,80 +300,93 @@ for camada in range(num_camadas):
     z_atual = altura_camada + (camada * altura_camada)
     eh_par = (camada % 2 == 0)
     
-    # Aplica a alteração dinâmica de fluxo
+    # Determina o fluxo desta camada
     if camada == 0:
-        steps.append(fc.ManualGcode(text=f"M221 S{int(fluxo_camada_inicial)} ; Configura fluxo da primeira camada"))
-    elif camada == 1:
-        steps.append(fc.ManualGcode(text=f"M221 S{int(fluxo_demais_camadas)} ; Restaura fluxo para as demais camadas"))
+        fluxo_perim_atual = fluxo_perimetro_primeira_camada
+        fluxo_infill_atual = fluxo_infill_primeira_camada
+    else:
+        fluxo_perim_atual = fluxo_perimetro_demais_camadas
+        fluxo_infill_atual = fluxo_infill_demais_camadas
         
     if camada > 0:
         # Puxa o último X,Y conhecido e apenas eleva o bico no eixo Z, exatamente onde ele parou!
         lx, ly = get_last_point(steps)
+        steps.append(fc.Extruder(on=False))
         steps.append(fc.Point(x=lx, y=ly, z=z_atual))
+        steps.append(fc.Extruder(on=True))
         
+    # Alternância Angular
+    angulo_atual = angulo_infill_base if eh_par else -angulo_infill_base
+    
     if eh_par or not alternar_ordem_camadas:
         # --- PERÍMETRO -> INFILL ---
-        # 1. Perímetro (Começa dinamicamente no canto em que a extrusora já estiver!)
+        steps.append(fc.ManualGcode(text=f"M221 S{int(fluxo_perim_atual)}"))
         start_x, start_y = get_last_point(steps)
         pts_perim, is_left, is_top = gerar_perimetros_dinamicos(
-            num_perimetros, x_min, x_max, y_min, y_max, z_atual, recuo, largura_extrusao * 0.95,
+            num_perimetros, x_min, x_max, y_min, y_max, z_atual, recuo, largura_extrusao,
             start_x, start_y, out_to_in=True, anti_horario=True
         )
         adicionar_caminho_seguro(steps, pts_perim)
         
-        # 2. Infill (Puxa os rastros de onde o perímetro parou!)
-        if infill_pattern == 'concentric':
-            lx, ly = get_last_point(steps)
-            pts_infill, _, _ = gerar_perimetros_dinamicos(
-                len(offsets_concentricos), x_min, x_max, y_min, y_max, z_atual, offsets_concentricos[0] if offsets_concentricos else 0, espacamento_alvo,
-                lx, ly, out_to_in=True, anti_horario=True
-            )
-            adicionar_caminho_seguro(steps, pts_infill)
-            
-        elif infill_pattern == 'grid' and not eh_par:
-            pts_infill = gerar_infill_horizontal_dinamico(
-                y_coords_infill, x_infill_min_horiz, x_infill_max_horiz, z_atual, is_left, is_top
-            )
-            adicionar_caminho_seguro(steps, pts_infill)
-            
-        elif infill_pattern in ['zigzag', 'gyroid', 'grid']:
-            phase = math.pi if (not eh_par and infill_pattern == 'gyroid') else 0
-            pts_infill = gerar_infill_vertical_dinamico(
-                x_coords_infill, y_infill_min_vert, y_infill_max_vert, z_atual,
-                is_left, is_top, infill_pattern, phase, amplitude_gyroid, comprimento_onda_gyroid
-            )
-            adicionar_caminho_seguro(steps, pts_infill)
+        if infill_percent > 0:
+            steps.append(fc.ManualGcode(text=f"M221 S{int(fluxo_infill_atual)}"))
+            if infill_pattern == 'concentric':
+                lx, ly = get_last_point(steps)
+                pts_infill, _, _ = gerar_perimetros_dinamicos(
+                    len(offsets_concentricos), x_min, x_max, y_min, y_max, z_atual, offsets_concentricos[0] if offsets_concentricos else 0, espacamento_alvo,
+                    lx, ly, out_to_in=True, anti_horario=True
+                )
+                adicionar_caminho_seguro(steps, pts_infill)
+                
+            elif infill_pattern == 'grid':
+                pts1 = gerar_infill_rotacionado(angulo_atual, x_infill_bound_min, x_infill_bound_max, y_infill_bound_min, y_infill_bound_max, z_atual, espacamento_alvo * 2, 'zigzag', 0, 0, 0)
+                pts2 = gerar_infill_rotacionado(angulo_atual + 90, x_infill_bound_min, x_infill_bound_max, y_infill_bound_min, y_infill_bound_max, z_atual, espacamento_alvo * 2, 'zigzag', 0, 0, 0)
+                
+                lx, ly = get_last_point(steps)
+                adicionar_caminho_seguro(steps, orientar_caminho(pts1, lx, ly))
+                lx, ly = get_last_point(steps)
+                adicionar_caminho_seguro(steps, orientar_caminho(pts2, lx, ly))
+                
+            elif infill_pattern in ['zigzag', 'gyroid']:
+                phase = math.pi if not eh_par else 0
+                pts_infill = gerar_infill_rotacionado(angulo_atual, x_infill_bound_min, x_infill_bound_max, y_infill_bound_min, y_infill_bound_max, z_atual, espacamento_alvo, infill_pattern, phase, amplitude_gyroid, comprimento_onda_gyroid)
+                
+                lx, ly = get_last_point(steps)
+                adicionar_caminho_seguro(steps, orientar_caminho(pts_infill, lx, ly))
             
     else:
         # --- INFILL -> PERÍMETRO ---
-        start_x, start_y = get_last_point(steps)
-        is_left, is_top = get_corner_flags(start_x, start_y, x_min, x_max, y_min, y_max)
-        
-        # 1. Infill
-        if infill_pattern == 'concentric':
-            pts_infill, _, _ = gerar_perimetros_dinamicos(
-                len(offsets_concentricos), x_min, x_max, y_min, y_max, z_atual, offsets_concentricos[0] if offsets_concentricos else 0, espacamento_alvo,
-                start_x, start_y, out_to_in=False, anti_horario=False
-            )
-            adicionar_caminho_seguro(steps, pts_infill)
-            
-        elif infill_pattern == 'grid':
-            pts_infill = gerar_infill_horizontal_dinamico(
-                y_coords_infill, x_infill_min_horiz, x_infill_max_horiz, z_atual, is_left, is_top
-            )
-            adicionar_caminho_seguro(steps, pts_infill)
-            
-        elif infill_pattern in ['zigzag', 'gyroid']:
-            pts_infill = gerar_infill_vertical_dinamico(
-                x_coords_infill, y_infill_min_vert, y_infill_max_vert, z_atual,
-                is_left, is_top, infill_pattern, math.pi, amplitude_gyroid, comprimento_onda_gyroid
-            )
-            adicionar_caminho_seguro(steps, pts_infill)
+        if infill_percent > 0:
+            steps.append(fc.ManualGcode(text=f"M221 S{int(fluxo_infill_atual)}"))
+            if infill_pattern == 'concentric':
+                lx, ly = get_last_point(steps)
+                pts_infill, _, _ = gerar_perimetros_dinamicos(
+                    len(offsets_concentricos), x_min, x_max, y_min, y_max, z_atual, offsets_concentricos[0] if offsets_concentricos else 0, espacamento_alvo,
+                    lx, ly, out_to_in=False, anti_horario=False
+                )
+                adicionar_caminho_seguro(steps, pts_infill)
+                
+            elif infill_pattern == 'grid':
+                pts1 = gerar_infill_rotacionado(angulo_atual, x_infill_bound_min, x_infill_bound_max, y_infill_bound_min, y_infill_bound_max, z_atual, espacamento_alvo * 2, 'zigzag', 0, 0, 0)
+                pts2 = gerar_infill_rotacionado(angulo_atual + 90, x_infill_bound_min, x_infill_bound_max, y_infill_bound_min, y_infill_bound_max, z_atual, espacamento_alvo * 2, 'zigzag', 0, 0, 0)
+                
+                lx, ly = get_last_point(steps)
+                adicionar_caminho_seguro(steps, orientar_caminho(pts1, lx, ly))
+                lx, ly = get_last_point(steps)
+                adicionar_caminho_seguro(steps, orientar_caminho(pts2, lx, ly))
+                
+            elif infill_pattern in ['zigzag', 'gyroid']:
+                phase = math.pi if not eh_par else 0
+                pts_infill = gerar_infill_rotacionado(angulo_atual, x_infill_bound_min, x_infill_bound_max, y_infill_bound_min, y_infill_bound_max, z_atual, espacamento_alvo, infill_pattern, phase, amplitude_gyroid, comprimento_onda_gyroid)
+                
+                lx, ly = get_last_point(steps)
+                adicionar_caminho_seguro(steps, orientar_caminho(pts_infill, lx, ly))
             
         # 2. Perímetro
+        steps.append(fc.ManualGcode(text=f"M221 S{int(fluxo_perim_atual)}"))
         start_x, start_y = get_last_point(steps)
         pts_perim, _, _ = gerar_perimetros_dinamicos(
-            num_perimetros, x_min, x_max, y_min, y_max, z_atual, recuo, largura_extrusao * 0.95,
+            num_perimetros, x_min, x_max, y_min, y_max, z_atual, recuo, largura_extrusao,
             start_x, start_y, out_to_in=False, anti_horario=False
         )
         adicionar_caminho_seguro(steps, pts_perim)
@@ -352,5 +407,34 @@ gcode = fc.transform(steps, 'gcode', fc.GcodeControls(
     }
 ))
 
-print(f"G-code gerado com sucesso!")
-print(f"-> Trajetória 100% dinâmica. Travels e cruzamentos eliminados.")
+# ==============================================================================
+# 6. PÓS-PROCESSAMENTO: Remove comentários longos para compatibilidade com PrusaSlicer
+# ==============================================================================
+import glob, os
+
+# Encontra o arquivo gerado mais recente
+arquivos = sorted(glob.glob('prisma_solido*.gcode'), key=os.path.getmtime)
+if arquivos:
+    arquivo_gcode = arquivos[-1]
+    with open(arquivo_gcode, 'r', encoding='utf-8', errors='replace') as f:
+        linhas = f.readlines()
+    
+    linhas_limpas = []
+    for linha in linhas:
+        linha = linha.rstrip('\r\n')
+        # Remove comentários inline (mas preserva linhas que SÃO comentários puros necessários)
+        if ';' in linha and not linha.lstrip().startswith(';'):
+            linha = linha[:linha.index(';')].rstrip()
+        # Descarta linhas de comentário puro desnecessárias (exceto marcadores de seção)
+        elif linha.lstrip().startswith(';') and linha.strip() not in (';STARTGCODE', ';ENDGCODE'):
+            continue
+        if linha:  # ignora linhas em branco resultantes
+            linhas_limpas.append(linha + '\n')
+    
+    with open(arquivo_gcode, 'w', encoding='utf-8') as f:
+        f.writelines(linhas_limpas)
+    
+    # Verifica se alguma linha ainda é longa
+    max_len = max(len(l.rstrip()) for l in linhas_limpas)
+    print(f"G-code gerado com sucesso! -> {arquivo_gcode}")
+    print(f"-> Linhas no arquivo: {len(linhas_limpas)} | Maior linha: {max_len} chars")
