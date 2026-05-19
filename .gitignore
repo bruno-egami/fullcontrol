@@ -142,3 +142,6 @@ CLAUDE.md
 
 # Temporary files
 tmp/
+
+# Arquivos gerados
+*.gcode
