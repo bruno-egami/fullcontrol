@@ -15,13 +15,28 @@ largura_x = 30.0                   # Largura física da peça no eixo X
 comprimento_y = 60.0               # Comprimento físico da peça no eixo Y
 z_max_desejado = 15.0              # Altura final total da peça no eixo Z
 
-# --- Parâmetros de Perímetro (Paredes) ---
-num_perimetros = 2                 # Número de perímetros/paredes externas (ex: 1, 2, 3...)
-
-# --- Parâmetros de Preenchimento (Infill) ---
-infill_percent = 0.0              # Densidade do preenchimento (0% a 100%)
-sobreposicao_infill = 0.5          # mm (Sobreposição do infill na parede interna para fusão perfeita)
-infill_pattern = 'zigzag'            # Opções: 'zigzag' (Y), 'grid' (X/Y), 'concentric' (anéis), 'gyroid' (senoide 3D)
+# --- Zonas de Configuração por Camada ---
+# Defina o perfil da peça. Cada zona se aplica a partir da 'camada_inicio'.
+zonas_camadas = [
+    {
+        'camada_inicio': 0,
+        'num_perimetros': 2,
+        'infill_percent': 100.0,
+        'infill_pattern': 'zigzag',
+        'fluxo_perimetro': 90.0,
+        'fluxo_infill': 90.0,
+        'espiral': False
+    },
+    {
+        'camada_inicio': 3,
+        'num_perimetros': 1,
+        'infill_percent': 0.0,
+        'infill_pattern': 'zigzag',
+        'fluxo_perimetro': 100.0,
+        'fluxo_infill': 100.0,
+        'espiral': True
+    }
+]
 
 # --- Controle de Trajetória ---
 alternar_ordem_camadas = False     # True: Ímpares fazem Infill primeiro. False: Sempre faz Perímetro primeiro.
@@ -37,11 +52,8 @@ comprimento_onda_gyroid = 15.0     # mm (Distância de um ciclo completo da onda
 velocidade_impressao = 600         # mm/min (10 mm/s) - recomendada vazão lenta para bico grande de 3mm
 velocidade_travel = 3000           # mm/min (50 mm/s) - velocidade para movimentos livres de extrusão
 
-# --- Controle de Fluxo (Extrusão) ---
-fluxo_perimetro_primeira_camada = 90.0
-fluxo_infill_primeira_camada = 90.0
-fluxo_perimetro_demais_camadas = 100.0
-fluxo_infill_demais_camadas = 100.0
+# --- Controle Extra de Infill ---
+sobreposicao_infill = 0.5          # mm (Sobreposição do infill na parede interna para fusão perfeita)
 
 # ==============================================================================
 # 2. INICIALIZAÇÃO E COMANDOS DE FIRMWARE
@@ -67,36 +79,19 @@ recuo = largura_extrusao / 2
 x_p_min_outer, x_p_max_outer = x_min + recuo, x_max - recuo
 y_p_min_outer, y_p_max_outer = y_min + recuo, y_max - recuo
 
-innermost_offset = recuo + (num_perimetros - 1) * (largura_extrusao * 0.95)
-x_innermost_min, x_innermost_max = x_min + innermost_offset, x_max - innermost_offset
-y_innermost_min, y_innermost_max = y_min + innermost_offset, y_max - innermost_offset
-
-espacamento_alvo = (largura_extrusao * 0.95) / (infill_percent / 100.0) if infill_percent > 0 else 9999.0
-
-# --- INFILL BOUNDS (Limites de Interseção) ---
-# A caixa delimitadora do Infill recua metade do bico em relação ao último perímetro e avança a sobreposição
-x_infill_bound_min = x_innermost_min + recuo - sobreposicao_infill
-x_infill_bound_max = x_innermost_max - recuo + sobreposicao_infill
-y_infill_bound_min = y_innermost_min + recuo - sobreposicao_infill
-y_infill_bound_max = y_innermost_max - recuo + sobreposicao_infill
-
-# --- INFILL CONCÊNTRICO ---
-offsets_concentricos = []
-max_offset_x = (x_max - x_min) / 2
-max_offset_y = (y_max - y_min) / 2
-max_offset = min(max_offset_x, max_offset_y)
-
-if infill_percent > 0:
-    off = innermost_offset + espacamento_alvo
-    while off < max_offset - 0.5:
-        offsets_concentricos.append(off)
-        off += espacamento_alvo
-
 num_camadas = math.ceil(z_max_desejado / altura_camada)
+
+def obter_zona(camada):
+    zona_ativa = zonas_camadas[0]
+    for zona in zonas_camadas:
+        if camada >= zona['camada_inicio']:
+            zona_ativa = zona
+    return zona_ativa
 
 # ==============================================================================
 # MOTOR DINÂMICO DE TRAJETÓRIAS (Zero Travels)
 # ==============================================================================
+
 
 # Detecção automática de continuidade: se o próximo ponto estiver longe, faz uma viagem vazia (Travel)
 def adicionar_caminho_seguro(steps, pts):
@@ -284,6 +279,46 @@ def gerar_perimetros_dinamicos(num_perim, x_min_b, x_max_b, y_min_b, y_max_b, z,
     is_top = (idx_start == 0 or idx_start == 3)
     return pts, is_left, is_top
 
+# Modo Espiral Contínua: percorre os 4 lados do retângulo interpolando o eixo Z linearmente.
+# Z sobe exatamente 1/4 da altura_camada a cada segmento.
+def gerar_espiral_retangular(x_min_b, x_max_b, y_min_b, y_max_b, z_inicio, altura_cam, recuo, start_x, start_y, anti_horario=True):
+    pts = []
+    x_p_min_out, x_p_max_out = x_min_b + recuo, x_max_b - recuo
+    y_p_min_out, y_p_max_out = y_min_b + recuo, y_max_b - recuo
+    
+    corners_out = [
+        (x_p_min_out, y_p_max_out), # 0: TL
+        (x_p_min_out, y_p_min_out), # 1: BL
+        (x_p_max_out, y_p_min_out), # 2: BR
+        (x_p_max_out, y_p_max_out)  # 3: TR
+    ]
+    
+    idx_start = 0
+    min_d = 999999
+    for i, (cx, cy) in enumerate(corners_out):
+        d = math.hypot(cx - start_x, cy - start_y)
+        if d < min_d:
+            min_d = d
+            idx_start = i
+            
+    # Ordem dos cantos partindo do mais próximo
+    loop_corners = []
+    if anti_horario:
+        for i in range(5): loop_corners.append(corners_out[(idx_start + i) % 4])
+    else:
+        for i in range(5): loop_corners.append(corners_out[(idx_start - i) % 4])
+        
+    # Primeiro ponto (exatamente no Z_inicio)
+    cx, cy = loop_corners[0]
+    pts.append(fc.Point(x=cx, y=cy, z=z_inicio))
+    
+    # 4 segmentos = 4 cantos seguintes
+    for i in range(1, 5):
+        cx, cy = loop_corners[i]
+        z_atual = z_inicio + (i / 4.0) * altura_cam
+        pts.append(fc.Point(x=cx, y=cy, z=z_atual))
+        
+    return pts
 
 
 # ==============================================================================
@@ -300,14 +335,37 @@ for camada in range(num_camadas):
     z_atual = altura_camada + (camada * altura_camada)
     eh_par = (camada % 2 == 0)
     
-    # Determina o fluxo desta camada
-    if camada == 0:
-        fluxo_perim_atual = fluxo_perimetro_primeira_camada
-        fluxo_infill_atual = fluxo_infill_primeira_camada
-    else:
-        fluxo_perim_atual = fluxo_perimetro_demais_camadas
-        fluxo_infill_atual = fluxo_infill_demais_camadas
-        
+    # Extrai os parâmetros dinâmicos da zona atual
+    zona_ativa = obter_zona(camada)
+    num_perimetros = zona_ativa.get('num_perimetros', 1)
+    infill_percent = zona_ativa.get('infill_percent', 0.0)
+    infill_pattern = zona_ativa.get('infill_pattern', 'zigzag')
+    fluxo_perim_atual = zona_ativa.get('fluxo_perimetro', 100.0)
+    fluxo_infill_atual = zona_ativa.get('fluxo_infill', 100.0)
+    espiral = zona_ativa.get('espiral', False)
+    
+    # Recalcula limites baseados no número de perímetros da zona atual
+    innermost_offset = recuo + (num_perimetros - 1) * (largura_extrusao * 0.95)
+    x_innermost_min, x_innermost_max = x_min + innermost_offset, x_max - innermost_offset
+    y_innermost_min, y_innermost_max = y_min + innermost_offset, y_max - innermost_offset
+
+    espacamento_alvo = (largura_extrusao * 0.95) / (infill_percent / 100.0) if infill_percent > 0 else 9999.0
+
+    x_infill_bound_min = x_innermost_min + recuo - sobreposicao_infill
+    x_infill_bound_max = x_innermost_max - recuo + sobreposicao_infill
+    y_infill_bound_min = y_innermost_min + recuo - sobreposicao_infill
+    y_infill_bound_max = y_innermost_max - recuo + sobreposicao_infill
+
+    # --- MODO ESPIRAL CONTÍNUA (Vase Mode) ---
+    if espiral:
+        z_inicio = z_atual - altura_camada
+        steps.append(fc.ManualGcode(text=f"M221 S{int(fluxo_perim_atual)}"))
+        start_x, start_y = get_last_point(steps)
+        pts_espiral = gerar_espiral_retangular(x_min, x_max, y_min, y_max, z_inicio, altura_camada, recuo, start_x, start_y, anti_horario=True)
+        adicionar_caminho_seguro(steps, pts_espiral)
+        continue
+
+    # --- MODO TRADICIONAL DISCRETO ---
     if camada > 0:
         # Puxa o último X,Y conhecido e apenas eleva o bico no eixo Z, exatamente onde ele parou!
         lx, ly = get_last_point(steps)
@@ -331,6 +389,15 @@ for camada in range(num_camadas):
         if infill_percent > 0:
             steps.append(fc.ManualGcode(text=f"M221 S{int(fluxo_infill_atual)}"))
             if infill_pattern == 'concentric':
+                offsets_concentricos = []
+                max_offset_x = (x_max - x_min) / 2
+                max_offset_y = (y_max - y_min) / 2
+                max_offset = min(max_offset_x, max_offset_y)
+                off = innermost_offset + espacamento_alvo
+                while off < max_offset - 0.5:
+                    offsets_concentricos.append(off)
+                    off += espacamento_alvo
+                
                 lx, ly = get_last_point(steps)
                 pts_infill, _, _ = gerar_perimetros_dinamicos(
                     len(offsets_concentricos), x_min, x_max, y_min, y_max, z_atual, offsets_concentricos[0] if offsets_concentricos else 0, espacamento_alvo,
@@ -359,6 +426,15 @@ for camada in range(num_camadas):
         if infill_percent > 0:
             steps.append(fc.ManualGcode(text=f"M221 S{int(fluxo_infill_atual)}"))
             if infill_pattern == 'concentric':
+                offsets_concentricos = []
+                max_offset_x = (x_max - x_min) / 2
+                max_offset_y = (y_max - y_min) / 2
+                max_offset = min(max_offset_x, max_offset_y)
+                off = innermost_offset + espacamento_alvo
+                while off < max_offset - 0.5:
+                    offsets_concentricos.append(off)
+                    off += espacamento_alvo
+                    
                 lx, ly = get_last_point(steps)
                 pts_infill, _, _ = gerar_perimetros_dinamicos(
                     len(offsets_concentricos), x_min, x_max, y_min, y_max, z_atual, offsets_concentricos[0] if offsets_concentricos else 0, espacamento_alvo,
