@@ -34,15 +34,60 @@ Gera a geometria de um cilindro perfeito, explorando a simetria circular para ge
 
 ## 🛠️ Como Utilizar
 
-1. Edite diretamente os parâmetros físicos iniciais nos arquivos `prisma.py` ou `cilindro.py`.
-2. No início de cada arquivo, ajuste a seção `CONFIGURAÇÕES DO USUÁRIO` e adicione/remova fases no array de dicionários `zonas_camadas`.
-3. Rode o script no seu ambiente Python (certifique-se de que o pacote `fullcontrol` está instalado):
+### 1. Preparação do Ambiente
+
+Para configurar o ambiente de desenvolvimento e executar os scripts, siga as etapas abaixo no seu terminal:
+
+**Passo A: Clonar o Repositório**
+Clone o repositório para sua máquina local e navegue para o diretório do projeto:
+```bash
+git clone https://github.com/bruno-egami/fullcontrol.git
+cd fullcontrol
+```
+
+**Passo B: Criar um Ambiente Virtual (`venv`)**
+Recomenda-se o uso de um ambiente virtual para isolar as dependências e evitar conflitos com outros pacotes do seu sistema:
+```bash
+python -m venv venv
+```
+
+**Passo C: Ativar o Ambiente Virtual**
+Ative o ambiente virtual de acordo com o seu sistema operacional:
+*   **Windows (PowerShell):**
+    ```powershell
+    .\venv\Scripts\Activate.ps1
+    ```
+*   **Windows (CMD / Prompt de Comando):**
+    ```cmd
+    .\venv\Scripts\activate.bat
+    ```
+*   **Linux / macOS:**
+    ```bash
+    source venv/bin/activate
+    ```
+
+**Passo D: Instalar o Pacote Local e Dependências**
+Com o ambiente virtual ativo, instale o pacote `fullcontrol` em modo editável (`-e`). Isso permite que quaisquer modificações ou desenvolvimentos futuros no pacote local sejam refletidos instantaneamente:
+```bash
+pip install -e .
+```
+*(Nota: Esse comando irá ler o `pyproject.toml` e instalar de forma automatizada todas as dependências exigidas, como `numpy`, `plotly` e `pydantic`)*
+
+---
+
+### 2. Configuração e Geração de G-code
+
+Após configurar o ambiente, siga os passos abaixo para gerar seus arquivos:
+
+1. **Ajuste os parâmetros físicos:** Edite diretamente os arquivos `prisma.py` ou `cilindro.py` no seu editor de código de preferência.
+2. **Configure as Zonas de Camada:** No início de cada script, altere a seção `CONFIGURAÇÕES DO USUÁRIO` e adicione ou remova as fases/zonas dentro do dicionário `zonas_camadas`.
+3. **Rode o script:** Com o ambiente virtual ativado no seu terminal, execute o comando correspondente:
    ```bash
    python prisma.py
    # ou
    python cilindro.py
    ```
-4. O script criará um arquivo `.gcode` recém compilado na pasta do projeto. Ele está limpo e pronto! Basta abri-lo no visualizador do PrusaSlicer para revisar ou enviá-lo para sua impressora 3D!
+4. **Pronto para Impressão:** O script compilará a peça e gerará um arquivo `.gcode` limpo na pasta do projeto. Agora você pode abri-lo no visualizador do PrusaSlicer para conferir os caminhos ou enviá-lo diretamente para a impressora!
 
 ---
 
