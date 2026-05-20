@@ -6,6 +6,23 @@ O objetivo destes scripts é permitir a criação rápida de geometrias primitiv
 
 Esta demanda surgiu pelo fato de que os fatiadores tradicionais não atendem certas necessidades, como, por exemplo, a impressão de peças com geometrias em que o percurso gerado para cada linha de extrusão não é otimizado, resultando em viagens vazias (travels) desnecessárias. Isto é especialmente útil para impressão DIW de argilas, em que viagens vazias podem causar falhas na impressão.
 
+
+Aqui está uma sugestão de texto técnico para ser inserido logo abaixo do cabeçalho principal do seu `README.md`. Este texto contextualiza as dificuldades específicas da impressão DIW com pastas (argila/cerâmica) e justifica por que o framework de geração paramétrica é essencial.
+
+---
+
+## 💧 O Desafio da Impressão DIW (Direct Ink Writing)
+
+A impressão direta com pastas (DIW), como argila, cerâmica ou outros materiais pastosos, apresenta desafios de engenharia que os fatiadores (slicers) FDM padrão não conseguem resolver de forma eficiente. Diferente dos termoplásticos (PLA, PETG), materiais pastosos comportam-se como fluidos sob pressão e possuem limitações intrínsecas:
+
+* **Inviabilidade de Retrações:** Em sistemas de extrusão de argila, a retração mecânica é frequentemente ineficaz ou contraproducente. Ela pode introduzir bolhas de ar no material, causar falhas de vácuo ou entupimentos no bico. A melhor estratégia é a **extrusão contínua**, sem pausas.
+* **Sensibilidade a Movimentos Vazios (Travels):** Qualquer movimento de "travel" sem extrusão gera o risco de gotejamento, criação de "fios" (stringing) ou despressurização do sistema, comprometendo a adesão da camada subsequente.
+* **Pressão do Sistema:** A estabilidade de uma peça de argila úmida depende da constância da pressão de extrusão. Paradas bruscas ou mudanças rápidas de direção (comuns em caminhos de infill tradicionais) geram variações de pressão que podem causar "blobs" ou falhas estruturais, levando ao colapso da peça antes da secagem.
+* **Geometrias "Vase Mode" Reais:** Devido à natureza úmida do material, a técnica de impressão em espiral contínua (Vase Mode) é a mais segura para garantir a integridade estrutural, evitando "costuras" (Z-seams) que servem como pontos de fragilidade e possíveis vazamentos de material.
+
+Os scripts deste repositório foram desenhados especificamente para atacar estes problemas, priorizando caminhos de ferramenta ininterruptos e controle preciso de fluxo, permitindo que a geometria seja ditada pela física do material, e não pelas limitações dos algoritmos de fatiamento genéricos.
+
+
 ---
 
 ## 🚀 Scripts Desenvolvidos
