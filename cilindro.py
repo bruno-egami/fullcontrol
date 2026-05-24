@@ -8,7 +8,7 @@ import glob, os
 
 # --- Parâmetros Físicos da Extrusão ---
 largura_extrusao = 3.0             # mm (Diâmetro do bico / largura do filete impresso)
-altura_camada = 1.5                # mm (Altura de cada camada)
+altura_camada = 2.0                # mm (Altura de cada camada)
 resolucao_mm = 1.0                 # mm (Tamanho de cada segmento nas curvas)
 
 # --- Parâmetros Geométricos do Cilindro ---
@@ -21,18 +21,18 @@ z_max_desejado = 15.0              # Altura final total da peça no eixo Z
 zonas_camadas = [
     {
         'camada_inicio': 0,
-        'num_perimetros': 2,
+        'num_perimetros': 0,
         'infill_percent': 100.0,
-        'infill_pattern': 'zigzag',
-        'fluxo_perimetro': 90.0,
-        'fluxo_infill': 90.0,
+        'infill_pattern': 'concentric',
+        'fluxo_perimetro': 100.0,
+        'fluxo_infill': 100.0,
         'espiral': False
     },
     {
-        'camada_inicio': 3,
+        'camada_inicio': 4,
         'num_perimetros': 1,
         'infill_percent': 0.0,
-        'infill_pattern': 'zigzag',
+        'infill_pattern': 'concentric',
         'fluxo_perimetro': 100.0,
         'fluxo_infill': 100.0,
         'espiral': True
@@ -40,7 +40,7 @@ zonas_camadas = [
 ]
 
 # --- Controle de Trajetória ---
-alternar_ordem_camadas = False     # True: Ímpares fazem Infill primeiro. False: Sempre faz Perímetro primeiro.
+alternar_ordem_camadas = True     # True: Ímpares fazem Infill primeiro. False: Sempre faz Perímetro primeiro.
 
 # --- Controle de Rotação de Infill ---
 angulo_infill_base = 45.0          # Graus. Padrões alternarão entre +ângulo e -ângulo a cada camada.
@@ -233,6 +233,92 @@ def gerar_infill_circular_rotacionado(angulo_graus, raio_limite, z, espacamento,
     return pts
 
 
+def gerar_espiral_concentrica_circular(raio_inicio, espacamento, z, start_x, start_y, out_to_in=True, anti_horario=True):
+    pts = []
+    
+    # Se começar muito perto do centro geométrico (como no início da camada de dentro para fora),
+    # definimos theta_start como pi (180 graus, borda esquerda) para alinhar perfeitamente com a outra camada.
+    dist_centro = math.hypot(start_x - x_centro, start_y - y_centro)
+    if dist_centro < 0.1:
+        theta_start = math.pi
+    else:
+        theta_start = math.atan2(start_y - y_centro, start_x - x_centro)
+    
+    # Margem mínima de segurança para o último anel não ser menor ou igual a zero
+    limite_min = 0.2
+    if raio_inicio <= limite_min:
+        return pts
+        
+    # Calcula o número máximo de anéis concêntricos que podemos fazer de forma a
+    # preencher o centro o máximo possível, garantindo o fechamento total da base sólida.
+    num_aneis = int(math.floor((raio_inicio - limite_min) / espacamento)) + 1
+    if num_aneis < 1:
+        num_aneis = 1
+        
+    # Cada ciclo completo (Anel + Rampa) dura EXATAMENTE 360° (2*pi radianos).
+    # Com isso, a rampa cossenoide de 90° (0.5*pi radianos) ocorre sempre na mesma posição
+    # angular em todas as voltas. Isso garante que a distância radial entre voltas adjacentes
+    # seja RIGOROSAMENTE constante e igual a 1.0 * espacamento em qualquer ângulo (360°),
+    # eliminando 100% de quaisquer sobreposições ou acúmulo de material local!
+    rampa_rad = 0.5 * math.pi
+    duracao_ciclo = 2 * math.pi
+    
+    # A espiral inteira dura exatamente num_aneis voltas completas de 360° (duracao_ciclo).
+    total_radianos = num_aneis * duracao_ciclo
+    
+    # Estimamos o comprimento total para determinar o número de pontos
+    raio_fim = 0.0  # pois espiralamos até o centro (r = 0.0)
+    raio_medio = raio_inicio / 2
+    comprimento_total = (total_radianos / (2 * math.pi)) * 2 * math.pi * raio_medio
+    num_pts = max(16, int(math.ceil(comprimento_total / resolucao_mm)))
+    
+    # Geramos a trajetória de forma 100% contínua sempre no sentido de fora para dentro (out_to_in)
+    for i in range(num_pts + 1):
+        t = i / num_pts
+        rad_acumulado = t * total_radianos
+        
+        # Evita imprecisão numérica no ponto final que zera o modulo da fase
+        if rad_acumulado >= total_radianos - 1e-9:
+            p = num_aneis - 1
+            phi_rel = duracao_ciclo
+        else:
+            p = int(rad_acumulado // duracao_ciclo)
+            phi_rel = rad_acumulado % duracao_ciclo
+            
+        r_p = raio_inicio - p * espacamento
+        
+        if phi_rel <= 2 * math.pi - rampa_rad:
+            # 1. Anel circular concêntrico perfeito a raio rigorosamente constante.
+            r = r_p
+        else:
+            # 2. Rampa de transição suave cossenoide (S-curve)
+            t_rampa = (phi_rel - (2 * math.pi - rampa_rad)) / rampa_rad
+            f_suave = (1.0 - math.cos(math.pi * t_rampa)) / 2.0
+            
+            if p == num_aneis - 1:
+                # O último anel espira suavemente até o centro absoluto (r = 0.0) na rampa
+                r = r_p + f_suave * (0.0 - r_p)
+            else:
+                # Rampa de transição para o próximo anel interno
+                r_proximo = raio_inicio - (p + 1) * espacamento
+                r = r_p + f_suave * (r_proximo - r_p)
+                
+        theta_delta = rad_acumulado * (1 if anti_horario else -1)
+        theta = theta_start + theta_delta
+        
+        cx = x_centro + r * math.cos(theta)
+        cy = y_centro + r * math.sin(theta)
+        pts.append(fc.Point(x=cx, y=cy, z=z))
+        
+    # Se a trajetória solicitada for de dentro para fora, basta inverter a ordem da lista
+    # de pontos de forma limpa, preservando a coerência geométrica e física
+    if not out_to_in:
+        pts.reverse()
+        
+    return pts
+
+
+
 # ==============================================================================
 # 4. GERAÇÃO DA PEÇA (Caminho Contínuo Total)
 # ==============================================================================
@@ -256,7 +342,13 @@ for camada in range(num_camadas):
     espiral = zona_ativa.get('espiral', False)
     
     # Recalcula limites baseados no perímetro
-    raio_innermost = raio_p_outer - (num_perimetros - 1) * (largura_extrusao * 0.95)
+    if num_perimetros == 0:
+        # Sem perímetros, a base sólida é feita apenas de infill.
+        # Para que a base fique levemente maior (para acabamento manual e apoiar 100% o vaso em espiral),
+        # aumentamos o tamanho do infill em uma distância equivalente a 1 perímetro (largura_extrusao * 0.95).
+        raio_innermost = raio_p_outer + 2 * (largura_extrusao * 0.95)
+    else:
+        raio_innermost = raio_p_outer - (num_perimetros - 1) * (largura_extrusao * 0.95)
     raio_infill_bound = raio_innermost - recuo + sobreposicao_infill
     
     espacamento_alvo = (largura_extrusao * 0.95) / (infill_percent / 100.0) if infill_percent > 0 else 9999.0
@@ -288,20 +380,11 @@ for camada in range(num_camadas):
         if infill_percent > 0:
             steps.append(fc.ManualGcode(text=f"M221 S{int(fluxo_infill_atual)}"))
             if infill_pattern == 'concentric':
-                off = raio_innermost - espacamento_alvo
-                offsets_concentricos = []
-                while off > 0.5:
-                    offsets_concentricos.append(off)
-                    off -= espacamento_alvo
-                
                 lx, ly = get_last_point(steps)
-                pts_infill = []
-                for r in offsets_concentricos:
-                    # Gera um anel isolado por vez e orienta o caminho
-                    anel = gerar_perimetros_circulares(1, r, z_atual, 0, lx, ly, out_to_in=True, anti_horario=True)
-                    lx = anel[-1].x
-                    ly = anel[-1].y
-                    pts_infill.extend(anel)
+                pts_infill = gerar_espiral_concentrica_circular(
+                    raio_innermost - espacamento_alvo, espacamento_alvo, z_atual,
+                    lx, ly, out_to_in=True, anti_horario=True
+                )
                 adicionar_caminho_seguro(steps, pts_infill)
                 
             elif infill_pattern == 'grid':
@@ -322,20 +405,11 @@ for camada in range(num_camadas):
         if infill_percent > 0:
             steps.append(fc.ManualGcode(text=f"M221 S{int(fluxo_infill_atual)}"))
             if infill_pattern == 'concentric':
-                off = raio_innermost - espacamento_alvo
-                offsets_concentricos = []
-                while off > 0.5:
-                    offsets_concentricos.append(off)
-                    off -= espacamento_alvo
-                
                 lx, ly = get_last_point(steps)
-                pts_infill = []
-                # Infill concêntrico de dentro para fora
-                for r in reversed(offsets_concentricos):
-                    anel = gerar_perimetros_circulares(1, r, z_atual, 0, lx, ly, out_to_in=False, anti_horario=False)
-                    lx = anel[-1].x
-                    ly = anel[-1].y
-                    pts_infill.extend(anel)
+                pts_infill = gerar_espiral_concentrica_circular(
+                    raio_innermost - espacamento_alvo, espacamento_alvo, z_atual,
+                    lx, ly, out_to_in=False, anti_horario=True
+                )
                 adicionar_caminho_seguro(steps, pts_infill)
                 
             elif infill_pattern == 'grid':

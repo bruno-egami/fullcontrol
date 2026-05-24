@@ -47,6 +47,25 @@ Gera a geometria de um cilindro perfeito, explorando a simetria circular para ge
 - **Espiral Contínua Adaptativa:** O Vase Mode sobe o eixo Z de forma micro-escalonada a cada milímetro do círculo, sendo a forma de vaso tubular mais perfeita que uma impressora FDM pode reproduzir.
 - **Compatibilidade 100% com Zonas:** Assim como o prisma, o cilindro suporta perfeitamente zonas variadas (ex: 5 camadas planas sólidas, seguidas de dezenas de camadas em espiral, mudando configurações livremente).
 
+### 3. Pós-Processador de G-code (`gcode_postprocessor.py`)
+Esta nova ferramenta atua como uma ponte inteligente entre fatiadores tradicionais (como o **PrusaSlicer**) e o **FullControl**, permitindo fatiar geometrias complexas em modo vaso (*Vase Mode*) e gerar uma base sólida mecanicamente otimizada com o FullControl.
+
+**O Problema Resolvido:**
+Em impressões DIW (argila), fatiadores tradicionais geram bases sólidas com muitas retrações, preenchimentos fragmentados e movimentos vazios (*travels*), o que costuma causar bolhas de ar e colapso da peça. Com este script, você fatia sua peça complexa no PrusaSlicer em *Vase Mode* **sem nenhuma base** (perímetros inferiores = 0, camadas de base = 0), e a ferramenta gera uma base sólida perfeita, 100% contínua e sem travels pelo FullControl, mesclando-a de forma transparente ao início da peça.
+
+**Funcionalidades Principais:**
+- **Variáveis Centralizadas no Topo:** Assim como no `prisma.py` e `cilindro.py`, todos os parâmetros agora podem ser editados diretamente em um bloco de `CONFIGURAÇÃO PADRÃO` no topo do script. Isso facilita o uso sem precisar lembrar ou digitar comandos complexos no terminal.
+- **Auto-Detecção do Modo de Extrusão (M82/M83):** O script lê e analisa as primeiras linhas do G-code de entrada para detectar automaticamente se a extrusão do slicer é **Absoluta** (`M82`) ou **Relativa** (`M83`).
+- **Resolução de Espessuras no Visualizador:** Ajusta dinamicamente a geração da base do FullControl e adiciona comandos explícitos de transição (`M82`/`M83` + `G92 E0.0`) no G-code mesclado. Isso evita que movimentos absolutos sejam interpretados como relativos, resolvendo as distorções visuais (linhas colossais/troncos de árvore) no visualizador do PrusaSlicer e prevenindo sobreextrusões fatais na impressora.
+- **Extração Automática de Contorno:** Lê o G-code do PrusaSlicer, busca os movimentos de extrusão da primeira camada até uma altura de referência especificada e reconstrói o polígono exato do perímetro usando geometria computacional (`shapely`).
+- **Geração de Base Robusta (FullControl):** Permite configurar a altura da camada, a largura da extrusão, o número de perímetros internos da base e o tipo de preenchimento.
+- **Padrões de Preenchimento Otimizados:**
+  - `zigzag`: Linhas retas que alternam automaticamente o ângulo a cada camada para fusão mecânica perfeita.
+  - `concentric`: Anéis concêntricos paralelos à parede externa, gerando caminhos de espiral concêntrica impecáveis (perfeitos para cerâmica).
+- **Alinhamento e Minimização de Travel (Zero-Travel Dinâmico):** Rotaciona ou reorganiza a ordem de impressão dos perímetros da base gerados no FullControl para que o **último ponto da base coincida perfeitamente com o primeiro ponto de extrusão do G-code do fatiador**. Isso elimina movimentos vazios bruscos entre a base e o início do vaso.
+- **Z-Offset Automático:** Aplica um deslocamento preciso em todas as coordenadas Z do corpo do G-code original, subindo a peça proporcionalmente à altura da base criada (`camadas-base * altura-camada`), garantindo continuidade perfeita.
+- **Mesclagem Inteligente de Arquivos:** Preserva o cabeçalho original de inicialização da impressora e o rodapé final do PrusaSlicer, inserindo a base do FullControl e a peça no meio de forma segura.
+
 ---
 
 ## 🛠️ Como Utilizar
@@ -105,6 +124,59 @@ Após configurar o ambiente, siga os passos abaixo para gerar seus arquivos:
    python cilindro.py
    ```
 4. **Pronto para Impressão:** O script compilará a peça e gerará um arquivo `.gcode` limpo na pasta do projeto. Agora você pode abri-lo no visualizador do PrusaSlicer para conferir os caminhos ou enviá-lo diretamente para a impressora!
+
+### 3. Uso do Pós-Processador de G-code
+
+O pós-processador utiliza a biblioteca `shapely`, que é instalada automaticamente na preparação do ambiente virtual caso você utilize a versão atualizada do repositório (com suporte no `pyproject.toml` e `requirements.txt`).
+
+#### A. Como Preparar o G-code no PrusaSlicer:
+1. Importe seu modelo 3D complexo.
+2. Ative a opção **Spiral vase** (Modo Vaso).
+3. Defina **Bottom solid layers** (Camadas sólidas inferiores) como `0`.
+4. Defina **Skirt** (Aba) e **Brim** (Borda) como `0` (ou certifique-se de que eles não fiquem na mesma altura da primeira camada caso queira usá-los, embora o recomendado seja gerar a base diretamente pelo script).
+5. Exporte o arquivo G-code (ex: `meu_vaso.gcode`).
+
+#### B. Como Executar a Ferramenta:
+Você pode executar o pós-processador de duas formas extremamente convenientes:
+
+##### Método 1: Edição Direta no Script (Recomendado/Mais Prático)
+1. Abra o arquivo [gcode_postprocessor.py](file:///d:/GitHub/FullControlXYZ/gcode_postprocessor.py) no seu editor de código.
+2. No topo do arquivo, localize a seção `CONFIGURAÇÃO PADRÃO`.
+3. Ajuste o nome do arquivo de entrada na variável `INPUT_GCODE` e configure os demais parâmetros da sua base sólida.
+4. Salve o arquivo e execute o script simplesmente com:
+   ```bash
+   python gcode_postprocessor.py
+   ```
+
+##### Método 2: Interface de Linha de Comando (CLI)
+Com o ambiente virtual ativo, você também pode passar os parâmetros diretamente no terminal. Qualquer argumento fornecido via terminal irá **sobrescrever** o valor definido no topo do arquivo:
+```bash
+python gcode_postprocessor.py meu_vaso.gcode --z-ref 1.5 --camadas-base 3
+```
+
+#### C. Parâmetros da CLI (Interface de Linha de Comando):
+
+Abaixo estão todos os parâmetros que você pode configurar para ajustar a geração da base sólida (todos os padrões listados abaixo agora correspondem aos valores globais definidos no topo do script):
+
+| Parâmetro | Tipo | Padrão | Descrição |
+| :--- | :--- | :--- | :--- |
+| `input` | *Posicional* | `INPUT_GCODE` | Caminho do arquivo G-code do PrusaSlicer (vase mode). Se omitido, utiliza a variável do topo. |
+| `--z-ref` | `float` | `Z_REF` | Altura Z (mm) no G-code original para servir de referência na extração do perímetro. |
+| `--camadas-base` | `int` | `CAMADAS_BASE` | Quantidade de camadas sólidas a serem geradas para a base. |
+| `--largura-extrusao`| `float` | `LARGURA_EXTRUSAO` | Largura da linha de extrusão (mm) desejada na base. |
+| `--altura-camada` | `float` | `ALTURA_CAMADA` | Altura (mm) de cada camada gerada na base. |
+| `--num-perimetros` | `int` | `NUM_PERIMETROS` | Número de contornos de perímetros internos antes de iniciar o infill. |
+| `--infill-pattern` | `str` | `INFILL_PATTERN` | Tipo de preenchimento. Opções: `zigzag` ou `concentric`. |
+| `--angulo-infill` | `float` | `ANGULO_INFILL` | Ângulo inicial do infill em graus (apenas para padrão `zigzag`). |
+| `--velocidade` | `float` | `VELOCIDADE` | Velocidade de extrusão na base em mm/min (F600). |
+| `--fluxo` | `int` | `FLUXO` | Multiplicador de fluxo em % para as camadas de base. |
+| `--output` | `str` | `OUTPUT_GCODE` | Caminho do arquivo de saída. Se omitido, salva como `{input}_com_base.gcode`. |
+| `--printer` | `str` | `PRINTER_PROFILE` | Perfil de impressora registrado no FullControl. |
+
+**Exemplo mesclando CLI e preenchimento concêntrico:**
+```bash
+python gcode_postprocessor.py vaso_complexo.gcode --largura-extrusao 4.0 --infill-pattern concentric --output vaso_pronto.gcode
+```
 
 ---
 

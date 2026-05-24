@@ -17,6 +17,7 @@ dependencies = [
   "plotly",
   "pydantic",
   "numpy",
+  "shapely",
 ]
 
 [build-system]

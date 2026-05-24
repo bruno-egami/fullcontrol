@@ -20,9 +20,9 @@ z_max_desejado = 15.0              # Altura final total da peça no eixo Z
 zonas_camadas = [
     {
         'camada_inicio': 0,
-        'num_perimetros': 2,
+        'num_perimetros': 1,
         'infill_percent': 100.0,
-        'infill_pattern': 'zigzag',
+        'infill_pattern': 'concentric',
         'fluxo_perimetro': 90.0,
         'fluxo_infill': 90.0,
         'espiral': False
@@ -39,7 +39,7 @@ zonas_camadas = [
 ]
 
 # --- Controle de Trajetória ---
-alternar_ordem_camadas = False     # True: Ímpares fazem Infill primeiro. False: Sempre faz Perímetro primeiro.
+alternar_ordem_camadas = True     # True: Ímpares fazem Infill primeiro. False: Sempre faz Perímetro primeiro.
 
 # --- Controle de Rotação de Infill ---
 angulo_infill_base = 45.0          # Graus. Padrões alternarão entre +ângulo e -ângulo a cada camada.
@@ -321,6 +321,149 @@ def gerar_espiral_retangular(x_min_b, x_max_b, y_min_b, y_max_b, z_inicio, altur
     return pts
 
 
+def gerar_espiral_concentrica_retangular(x_min_b, x_max_b, y_min_b, y_max_b, z, offset_inicial, espacamento, start_x, start_y, out_to_in=True, anti_horario=True):
+    pts = []
+    
+    # Encontra os offsets limites
+    max_offset_x = (x_max_b - x_min_b) / 2
+    max_offset_y = (y_max_b - y_min_b) / 2
+    max_offset = min(max_offset_x, max_offset_y)
+    
+    # Centro geométrico
+    x_centro = (x_min_b + x_max_b) / 2
+    y_centro = (y_min_b + y_max_b) / 2
+    
+    # Número de voltas completas - usando ceil para garantir que o centro seja bem preenchido!
+    distancia = max_offset - offset_inicial
+    num_voltas = int(math.ceil(distancia / espacamento))
+    if num_voltas < 1:
+        num_voltas = 1
+        
+    eixo_y_maior = max_offset_y >= max_offset_x
+
+    def gerar_caminho_base(idx_start, anti_horario_dir):
+        pts_base = []
+        for p in range(num_voltas):
+            offset_p = offset_inicial + p * espacamento
+            offset_next = offset_inicial + (p + 1) * espacamento
+            if p == num_voltas - 1:
+                offset_next = max_offset
+                
+            x1_p, x2_p = x_min_b + offset_p, x_max_b - offset_p
+            y1_p, y2_p = y_min_b + offset_p, y_max_b - offset_p
+            
+            x1_next, x2_next = x_min_b + offset_next, x_max_b - offset_next
+            y1_next, y2_next = y_min_b + offset_next, y_max_b - offset_next
+            
+            C_p = [
+                (x1_p, y2_p), # 0: TL
+                (x1_p, y1_p), # 1: BL
+                (x2_p, y1_p), # 2: BR
+                (x2_p, y2_p)  # 3: TR
+            ]
+            
+            C_next = [
+                (x1_next, y2_next), # 0: TL
+                (x1_next, y1_next), # 1: BL
+                (x2_next, y1_next), # 2: BR
+                (x2_next, y2_next)  # 3: TR
+            ]
+            
+            if anti_horario_dir:
+                idxs = [idx_start, (idx_start + 1) % 4, (idx_start + 2) % 4, (idx_start + 3) % 4]
+            else:
+                idxs = [idx_start, (idx_start - 1) % 4, (idx_start - 2) % 4, (idx_start - 3) % 4]
+                
+            pts_base.append(fc.Point(x=C_p[idxs[0]][0], y=C_p[idxs[0]][1], z=z))
+            pts_base.append(fc.Point(x=C_p[idxs[1]][0], y=C_p[idxs[1]][1], z=z))
+            pts_base.append(fc.Point(x=C_p[idxs[2]][0], y=C_p[idxs[2]][1], z=z))
+            pts_base.append(fc.Point(x=C_p[idxs[3]][0], y=C_p[idxs[3]][1], z=z))
+            
+            p_start = C_p[idxs[3]]
+            p_end = C_next[idxs[0]]
+            
+            # Se a 4ª coordenada (p_start) tem o mesmo Y que a 1ª coordenada (C_p[idxs[0]]), a 4ª linha é horizontal
+            if abs(p_start[1] - C_p[idxs[0]][1]) < 1e-4:
+                p_trans = (p_end[0], p_start[1])
+            else:
+                p_trans = (p_start[0], p_end[1])
+                
+            pts_base.append(fc.Point(x=p_trans[0], y=p_trans[1], z=z))
+            
+            # Na última volta, adicionamos o ponto final da rampa para fechar a espiral antes da espinha
+            if p == num_voltas - 1:
+                pts_base.append(fc.Point(x=p_end[0], y=p_end[1], z=z))
+                
+        p_last = pts_base[-1]
+        p_last_y = p_last.y
+        p_last_x = p_last.x
+        
+        if eixo_y_maior:
+            y_bottom_spine = y_min_b + max_offset
+            y_top_spine = y_max_b - max_offset
+            if abs(p_last_y - y_top_spine) < 1e-4:
+                y_target_spine = y_bottom_spine
+            else:
+                y_target_spine = y_top_spine
+                
+            spine_len = abs(y_target_spine - p_last_y)
+            steps_spine = max(2, int(math.ceil(spine_len / 1.0)))
+            for i in range(1, steps_spine + 1):
+                y_val = p_last_y + (i / steps_spine) * (y_target_spine - p_last_y)
+                pts_base.append(fc.Point(x=x_centro, y=y_val, z=z))
+        else:
+            x_left_spine = x_min_b + max_offset
+            x_right_spine = x_max_b - max_offset
+            if abs(p_last_x - x_left_spine) < 1e-4:
+                x_target_spine = x_right_spine
+            else:
+                x_target_spine = x_left_spine
+                
+            spine_len = abs(x_target_spine - p_last_x)
+            steps_spine = max(2, int(math.ceil(spine_len / 1.0)))
+            for i in range(1, steps_spine + 1):
+                x_val = p_last_x + (i / steps_spine) * (x_target_spine - p_last_x)
+                pts_base.append(fc.Point(x=x_val, y=y_centro, z=z))
+                
+        return pts_base
+
+    # Agora decidimos como gerar com base em out_to_in
+    if out_to_in:
+        x1_ref, x2_ref = x_min_b + offset_inicial, x_max_b - offset_inicial
+        y1_ref, y2_ref = y_min_b + offset_inicial, y_max_b - offset_inicial
+        corners_ref = [
+            (x1_ref, y2_ref), # 0: TL
+            (x1_ref, y1_ref), # 1: BL
+            (x2_ref, y1_ref), # 2: BR
+            (x2_ref, y2_ref)  # 3: TR
+        ]
+        
+        idx_start = 0
+        min_d = 999999
+        for i, (cx, cy) in enumerate(corners_ref):
+            d = math.hypot(cx - start_x, cy - start_y)
+            if d < min_d:
+                min_d = d
+                idx_start = i
+                
+        pts = gerar_caminho_base(idx_start, anti_horario)
+        return pts
+    else:
+        best_pts = None
+        min_d = 999999
+        
+        for idx in range(4):
+            pts_try = gerar_caminho_base(idx, not anti_horario)
+            p_final = pts_try[-1]
+            d = math.hypot(p_final.x - start_x, p_final.y - start_y)
+            if d < min_d:
+                min_d = d
+                best_pts = pts_try
+                
+        best_pts.reverse()
+        return best_pts
+
+
 # ==============================================================================
 # 4. GERAÇÃO DA PEÇA (Caminho Contínuo Total)
 # ==============================================================================
@@ -344,12 +487,17 @@ for camada in range(num_camadas):
     fluxo_infill_atual = zona_ativa.get('fluxo_infill', 100.0)
     espiral = zona_ativa.get('espiral', False)
     
+    espacamento_alvo = (largura_extrusao * 0.95) / (infill_percent / 100.0) if infill_percent > 0 else 9999.0
+
     # Recalcula limites baseados no número de perímetros da zona atual
-    innermost_offset = recuo + (num_perimetros - 1) * (largura_extrusao * 0.95)
+    if num_perimetros == 0:
+        # Sem perímetros, a base sólida é feita apenas de infill.
+        # Não precisa ficar 1 perímetro maior. Começa exatamente no recuo padrão (borda).
+        innermost_offset = recuo - espacamento_alvo
+    else:
+        innermost_offset = recuo + (num_perimetros - 1) * (largura_extrusao * 0.95)
     x_innermost_min, x_innermost_max = x_min + innermost_offset, x_max - innermost_offset
     y_innermost_min, y_innermost_max = y_min + innermost_offset, y_max - innermost_offset
-
-    espacamento_alvo = (largura_extrusao * 0.95) / (infill_percent / 100.0) if infill_percent > 0 else 9999.0
 
     x_infill_bound_min = x_innermost_min + recuo - sobreposicao_infill
     x_infill_bound_max = x_innermost_max - recuo + sobreposicao_infill
@@ -389,18 +537,9 @@ for camada in range(num_camadas):
         if infill_percent > 0:
             steps.append(fc.ManualGcode(text=f"M221 S{int(fluxo_infill_atual)}"))
             if infill_pattern == 'concentric':
-                offsets_concentricos = []
-                max_offset_x = (x_max - x_min) / 2
-                max_offset_y = (y_max - y_min) / 2
-                max_offset = min(max_offset_x, max_offset_y)
-                off = innermost_offset + espacamento_alvo
-                while off < max_offset - 0.5:
-                    offsets_concentricos.append(off)
-                    off += espacamento_alvo
-                
                 lx, ly = get_last_point(steps)
-                pts_infill, _, _ = gerar_perimetros_dinamicos(
-                    len(offsets_concentricos), x_min, x_max, y_min, y_max, z_atual, offsets_concentricos[0] if offsets_concentricos else 0, espacamento_alvo,
+                pts_infill = gerar_espiral_concentrica_retangular(
+                    x_min, x_max, y_min, y_max, z_atual, innermost_offset + espacamento_alvo, espacamento_alvo,
                     lx, ly, out_to_in=True, anti_horario=True
                 )
                 adicionar_caminho_seguro(steps, pts_infill)
@@ -426,18 +565,9 @@ for camada in range(num_camadas):
         if infill_percent > 0:
             steps.append(fc.ManualGcode(text=f"M221 S{int(fluxo_infill_atual)}"))
             if infill_pattern == 'concentric':
-                offsets_concentricos = []
-                max_offset_x = (x_max - x_min) / 2
-                max_offset_y = (y_max - y_min) / 2
-                max_offset = min(max_offset_x, max_offset_y)
-                off = innermost_offset + espacamento_alvo
-                while off < max_offset - 0.5:
-                    offsets_concentricos.append(off)
-                    off += espacamento_alvo
-                    
                 lx, ly = get_last_point(steps)
-                pts_infill, _, _ = gerar_perimetros_dinamicos(
-                    len(offsets_concentricos), x_min, x_max, y_min, y_max, z_atual, offsets_concentricos[0] if offsets_concentricos else 0, espacamento_alvo,
+                pts_infill = gerar_espiral_concentrica_retangular(
+                    x_min, x_max, y_min, y_max, z_atual, innermost_offset + espacamento_alvo, espacamento_alvo,
                     lx, ly, out_to_in=False, anti_horario=False
                 )
                 adicionar_caminho_seguro(steps, pts_infill)
