@@ -447,11 +447,24 @@ def gerar_espiral_concentrica_poligonal(aneis, start_x, start_y, out_to_in=True,
         
         # Se for a última volta da espiral, imprimimos por completo sem encolher/expandir mais
         if i == len(aneis_validos) - 1:
-            pts_espiral.extend(anel_atual)
+            if len(pts_espiral) > 0 and math.hypot(pts_espiral[-1].x - anel_atual[0].x, pts_espiral[-1].y - anel_atual[0].y) < 1e-4:
+                pts_espiral.extend(anel_atual[1:])
+            else:
+                pts_espiral.extend(anel_atual)
             lx, ly = anel_atual[-1].x, anel_atual[-1].y
         else:
             # Transiciona continuamente ao longo de toda a volta (espiral de Arquimedes poligonal)
-            for j in range(n_pts):
+            start_j = 0
+            if i > 0 and len(pts_espiral) > 0:
+                p0 = anel_atual[0]
+                dx0 = p0.x - cx
+                dy0 = p0.y - cy
+                rx0 = cx + dx0
+                ry0 = cy + dy0
+                if math.hypot(pts_espiral[-1].x - rx0, pts_espiral[-1].y - ry0) < 1e-4:
+                    start_j = 1
+                    
+            for j in range(start_j, n_pts):
                 p = anel_atual[j]
                 t = j / (n_pts - 1) if n_pts > 1 else 1.0
                 
@@ -489,11 +502,6 @@ def gerar_base_solida(poligono, args, primeiro_ponto_slicer):
         width=args.largura_extrusao, 
         height=args.altura_camada
     ))
-    
-    # Purga
-    steps.append(fc.ManualGcode(text="; --- PURGA PERSONALIZADA ---"))
-    steps.append(fc.ManualGcode(text="G1 E25 F100 ; Purga"))
-    steps.append(fc.ManualGcode(text="G92 E0.0"))
     steps.append(fc.ManualGcode(text=f"M221 S{args.fluxo}"))
     
     z_offset = args.camadas_base * args.altura_camada

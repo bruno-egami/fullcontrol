@@ -569,19 +569,28 @@ def gerar_espiral_concentrica_poligonal(aneis, start_x, start_y):
             lx, ly = anel_atual[-1].x, anel_atual[-1].y
         elif i == len(aneis_validos) - 1:
             # Último anel concêntrico: impresso por completo para fechar a base
-            pts_espiral.extend(anel_atual)
+            if len(pts_espiral) > 0 and math.hypot(pts_espiral[-1].x - anel_atual[0].x, pts_espiral[-1].y - anel_atual[0].y) < 1e-4:
+                pts_espiral.extend(anel_atual[1:])
+            else:
+                pts_espiral.extend(anel_atual)
             lx, ly = anel_atual[-1].x, anel_atual[-1].y
         else:
             n_atual = len(anel_atual)
             if n_atual < 8:
                 # Muito pequeno para fazer rampa de transição suave
-                pts_espiral.extend(anel_atual)
+                if len(pts_espiral) > 0 and math.hypot(pts_espiral[-1].x - anel_atual[0].x, pts_espiral[-1].y - anel_atual[0].y) < 1e-4:
+                    pts_espiral.extend(anel_atual[1:])
+                else:
+                    pts_espiral.extend(anel_atual)
                 lx, ly = anel_atual[-1].x, anel_atual[-1].y
                 continue
                 
             # Rampa suave a partir de 75% dos pontos
             ponto_corte = int(n_atual * 0.75)
-            pts_espiral.extend(anel_atual[:ponto_corte])
+            if len(pts_espiral) > 0 and math.hypot(pts_espiral[-1].x - anel_atual[0].x, pts_espiral[-1].y - anel_atual[0].y) < 1e-4:
+                pts_espiral.extend(anel_atual[1:ponto_corte])
+            else:
+                pts_espiral.extend(anel_atual[:ponto_corte])
             
             p_rampa_inicio = anel_atual[ponto_corte]
             
@@ -627,11 +636,7 @@ def gerar_base_solida(poligono, args, primeiro_ponto_slicer):
         height=args.altura_camada
     ))
     
-    # Purga (mesmo padrão do usuário)
-    steps.append(fc.ManualGcode(text="; --- PURGA PERSONALIZADA ---"))
-    steps.append(fc.ManualGcode(text="G1 E25 F100 ; Purga"))
-    steps.append(fc.ManualGcode(text="G92 E0.0"))
-    
+
     # Fluxo
     steps.append(fc.ManualGcode(text=f"M221 S{args.fluxo}"))
     

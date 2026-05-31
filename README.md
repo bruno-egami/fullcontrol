@@ -63,6 +63,15 @@ Nosso mais robusto script paramétrico tridimensional capaz de ler arquivos veto
   - **Infill Concêntrico Adensado sem Gaps:** O offset de infill concêntrico foi refinado para $\text{offset\_base} = \text{recuo} + \text{num\_perimetros} \cdot \text{espacamento} - \text{sobreposicao}$ e o espaçamento foi adensado para **`0.82 * largura_extrusao`** (reduzido de `0.95`). Essa sobreposição maior e mais densa aproximou as linhas radialmente de forma perfeita, eliminando por completo o antigo gap de 1.5 mm nas laterais retas e também os vãos locais que ocorriam nas reentrâncias e curvas internas fechadas do nó celta, garantindo uma base sólida sólida, estanque e homogênea.
   - **Zero Travels:** A transição entre a base sólida maciça e a linha única ocorre sob fluxo ativo. O G-code gerado é impresso em um filete 100% contínuo e ininterrupto do primeiro ao último ponto em cada camada.
 
+### 5. Otimizador de G-code PrusaSlicer (`gcode_optimizer.py`)
+Um otimizador de percurso universal e inteligente focado nos princípios do FullControl (caminhos contínuos, sem retracts e mínimo travel).
+* **Fatiamento Simplificado no Slicer:** Permite desenhar e fatiar qualquer modelo complexo 3D (STL/OBJ) no fatiador tradicional (como o PrusaSlicer) sem o Vase Mode ativo. O usuário simplesmente configura o fatiador para **1 perímetro, 0 infill, e sem camadas sólidas de topo/base**, exportando um G-code composto apenas pelas cascas da geometria original.
+* **Otimização Contínua de Percurso:** O otimizador analisa a entrada, ordena os contornos de cada camada via algoritmo **TSP Greedy (Travelling Salesperson Problem)**, e rotaciona o ponto de início de cada contorno para aproximar ao máximo o final do contorno anterior, minimizando os movimentos de travel e eliminando retracts desnecessários.
+* **Geração de Perímetros e Infill Customizados:** Recria parametricamente perímetros extras internos e preenchimento (infill) sob demanda diretamente no script:
+  - **Infill Zigzag Otimizado:** Linhas contínuas com alternância de direção a cada camada.
+  - **Infill Concêntrico Contínuo:** Espiralização contínua com transições cossinoidais ultra-suaves em S-curve entre anéis concêntricos.
+* **Detecção Universal de Parâmetros:** Identifica automaticamente configurações de altura de camada, diâmetro do bico/filete, diâmetro do filamento e modo de extrusão (M82/M83), preservando as alturas de camada originais programadas no fatiador.
+
 ---
 
 ## 📜 Instruções de Uso
@@ -143,6 +152,45 @@ Para fatiar peças complexas no fatiador e incluir uma base sólida paramétrica
    python gcode_postprocessor_inclinado.py meu_vaso.gcode --angulo-parede 75.0 --camadas-base 3
    ```
 3. O pós-processador calculará os buffers progressivos negativos ou positivos para Z de base sólida mecânica, mesclando-a de forma transparente no início do arquivo G-code.
+
+---
+
+### 5. Uso do Otimizador de G-code PrusaSlicer (`gcode_optimizer.py`)
+
+Para otimizar um G-code complexo fatiado no PrusaSlicer:
+
+1. **Configuração Recomendada no PrusaSlicer:**
+   - Desative o *Vase Mode*.
+   - Defina o número de perímetros para **1**.
+   - Defina as camadas sólidas de topo (top) e base (bottom) para **0**.
+   - Defina a densidade de infill para **0%**.
+   - **IMPORTANTE:** Habilite **"Verbose G-code"** (Print Settings > Output options) para permitir a detecção precisa de camadas via marcadores `;LAYER_CHANGE`.
+   - Desative qualquer recurso de *Arc Fitting* (usar apenas segmentos lineares G0/G1).
+   - Exporte o arquivo G-code (ex: `modelo_original.gcode`).
+
+2. **Execução do Script Otimizador:**
+   Com a `venv` ativa, execute o script passando as opções de percurso desejadas:
+   ```bash
+   # Otimização simples (mantendo 1 perímetro e sem infill)
+   python gcode_optimizer.py modelo_original.gcode
+
+   # Adicionar 2 perímetros extras e infill concêntrico espiralado contínuo a 100% de densidade
+   python gcode_optimizer.py modelo_original.gcode --num-perimetros 3 --infill-pattern concentric --infill-percent 100
+
+   # Usar infill zigzag a 45 graus e ajustar velocidade de extrusão
+   python gcode_optimizer.py modelo_original.gcode --num-perimetros 2 --infill-pattern zigzag --angulo-infill 45 --velocidade 800
+   ```
+
+3. **Parâmetros Customizáveis da CLI:**
+   - `--num-perimetros N`: Quantidade total de perímetros desejados (default: `1`).
+   - `--infill-pattern {none, concentric, zigzag}`: Padrão de preenchimento desejado (default: `none`).
+   - `--infill-percent P`: Porcentagem de densidade do infill (default: `100.0`).
+   - `--angulo-infill A`: Ângulo base para infill zigzag em graus (default: `45.0`).
+   - `--largura-extrusao W`: Largura nominal do filete impresso em mm (default: `3.0`).
+   - `--velocidade V`: Velocidade de impressão/extrusão em mm/min (default: `600.0`).
+   - `--fluxo F`: Multiplicador de fluxo em % (default: `100`).
+
+O script preserva perfeitamente o cabeçalho (`;STARTGCODE`) e o rodapé (`;ENDGCODE`) originais do fatiador, gerando o arquivo `modelo_original_otimizado.gcode` pronto para ser enviado para a impressora de argila.
 
 ---
 

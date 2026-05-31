@@ -9,31 +9,40 @@ import math
 largura_extrusao = 3.0             # mm (Diâmetro do bico / largura do filete impresso)
 altura_camada = 1.5                # mm (Altura de cada camada)
 
+# --- Parâmetros de Priming (Clay DIW) ---
+priming_ativo = True                # Habilita priming automático após travels
+priming_quantidade = 10.0          # mm de extrusão extra de material (quantidade)
+priming_velocidade = 100           # mm/min (velocidade de priming)
+
+# --- Parâmetros de Transição para o Modo Vaso ---
+transicao_vaso_z_offset = 0.5       # mm (Espaço vertical extra no início do vasemode para evitar esmagamento)
+transicao_vaso_fluxo = 85.0         # % (Fluxo de transição reduzido para a primeira camada do vasemode)
+
 # --- Parâmetros Geométricos do Prisma Inclinado ---
-x_centro, y_centro = 260.0, 45.0   # Centro geométrico da peça na mesa
-largura_x = 30.0                   # Largura física da peça no eixo X na primeira camada
+x_centro, y_centro = 250.0, 50.0   # Centro geométrico da peça na mesa
+largura_x = 20.0                   # Largura física da peça no eixo X na primeira camada
 comprimento_y = 60.0               # Comprimento físico da peça no eixo Y na primeira camada
-z_max_desejado = 15.0              # Altura final total da peça no eixo Z
-angulo_parede = 120.0               # Graus (90 = vertical, <90 = afunila para dentro, >90 = expande para fora)
+z_max_desejado = 10.0              # Altura final total da peça no eixo Z
+angulo_parede = 90.0               # Graus (90 = vertical, <90 = afunila para dentro, >90 = expande para fora)
 
 # --- Zonas de Configuração por Camada ---
 zonas_camadas = [
     {
         'camada_inicio': 0,
-        'num_perimetros': 0,
+        'num_perimetros': 1,
         'infill_percent': 100.0,
         'infill_pattern': 'concentric',
-        'fluxo_perimetro': 90.0,
-        'fluxo_infill': 90.0,
+        'fluxo_perimetro': 110.0,
+        'fluxo_infill': 110.0,
         'espiral': False
     },
     {
-        'camada_inicio': 30,
+        'camada_inicio': 4,
         'num_perimetros': 1,
         'infill_percent': 0.0,
         'infill_pattern': 'zigzag',
         'fluxo_perimetro': 100.0,
-        'fluxo_infill': 100.0,
+        'fluxo_infill': 150.0,
         'espiral': True
     }
 ]
@@ -49,8 +58,8 @@ amplitude_gyroid = 2.0             # mm (Largura/amplitude da onda senoidal do g
 comprimento_onda_gyroid = 15.0     # mm (Distância de um ciclo completo da onda)
 
 # --- Velocidades de Movimentação ---
-velocidade_impressao = 600         # mm/min (10 mm/s)
-velocidade_travel = 3000           # mm/min (50 mm/s)
+velocidade_impressao = 750         # mm/min (10 mm/s)
+velocidade_travel = 1500           # mm/min (50 mm/s)
 
 # --- Controle Extra de Infill ---
 sobreposicao_infill = 0.5          # mm (Sobreposição do infill na parede interna)
@@ -63,10 +72,6 @@ steps = []
 steps.append(fc.Printer(print_speed=velocidade_impressao, travel_speed=velocidade_travel))
 steps.append(fc.ManualGcode(text="M204 P500 T500"))
 steps.append(fc.ExtrusionGeometry(area_model='rectangle', width=largura_extrusao, height=altura_camada))
-
-steps.append(fc.ManualGcode(text="; --- PURGA PERSONALIZADA FORA DA MESA (X300 Y0 Z0) ---"))
-steps.append(fc.ManualGcode(text="G1 E25 F100 ; Purga"))
-steps.append(fc.ManualGcode(text="G92 E0.0"))
 
 # ==============================================================================
 # 3. PROCESSAMENTO MATEMÁTICO DOS PARÂMETROS
@@ -294,7 +299,7 @@ def gerar_espiral_concentrica_retangular(x_min_b, x_max_b, y_min_b, y_max_b, z, 
     y_centro = (y_min_b + y_max_b) / 2
     
     distancia = max_offset - offset_inicial
-    num_voltas = int(math.ceil(distancia / espacamento))
+    num_voltas = int(math.floor(distancia / espacamento))
     if num_voltas < 1:
         num_voltas = 1
         
@@ -428,6 +433,7 @@ steps.append(fc.Extruder(on=False))
 steps.append(fc.Point(x=x_p_min_outer, y=y_p_max_outer, z=altura_camada))
 steps.append(fc.Extruder(on=True)) # Abre o fluxo
 
+ultimo_era_espiral = False
 # Loop contínuo que desenha a peça camada a camada
 for camada in range(num_camadas):
     z_atual = altura_camada + (camada * altura_camada)
@@ -483,12 +489,29 @@ for camada in range(num_camadas):
 
     # --- MODO ESPIRAL CONTÍNUA (Vase Mode) ---
     if espiral:
-        z_inicio = z_atual - altura_camada
-        steps.append(fc.ManualGcode(text=f"M221 S{int(fluxo_perim_atual)}"))
+        steps.append(fc.ManualGcode(text="; --- ESPIRAL START ---"))
+        
+        # Identifica se é a camada de transição (primeira camada do vasemode)
+        eh_transicao_vaso = not ultimo_era_espiral
+        ultimo_era_espiral = True
+        
+        if eh_transicao_vaso:
+            z_inicio = z_atual - altura_camada + transicao_vaso_z_offset
+            altura_cam_atual = altura_camada - transicao_vaso_z_offset
+            fluxo_atual = transicao_vaso_fluxo
+        else:
+            z_inicio = z_atual - altura_camada
+            altura_cam_atual = altura_camada
+            fluxo_atual = fluxo_perim_atual
+            
+        steps.append(fc.ManualGcode(text=f"M221 S{int(fluxo_atual)}"))
         start_x, start_y = get_last_point(steps)
-        pts_espiral = gerar_espiral_retangular(x_min_camada, x_max_camada, y_min_camada, y_max_camada, z_inicio, altura_camada, recuo, start_x, start_y, anti_horario=True)
+        pts_espiral = gerar_espiral_retangular(x_min_camada, x_max_camada, y_min_camada, y_max_camada, z_inicio, altura_cam_atual, recuo, start_x, start_y, anti_horario=True)
         adicionar_caminho_seguro(steps, pts_espiral)
         continue
+    else:
+        ultimo_era_espiral = False
+        steps.append(fc.ManualGcode(text="; --- ESPIRAL END ---"))
 
     # --- MODO TRADICIONAL DISCRETO ---
     if camada > 0:
@@ -600,14 +623,32 @@ if arquivos:
         linhas = f.readlines()
     
     linhas_limpas = []
+    primeiro_g0 = True
+    em_espiral = False
     for linha in linhas:
         linha = linha.rstrip('\r\n')
         if ';' in linha and not linha.lstrip().startswith(';'):
             linha = linha[:linha.index(';')].rstrip()
-        elif linha.lstrip().startswith(';') and linha.strip() not in (';STARTGCODE', ';ENDGCODE'):
+        elif linha.lstrip().startswith(';') and linha.strip() not in (';STARTGCODE', ';ENDGCODE', '; --- ESPIRAL START ---', '; --- ESPIRAL END ---'):
             continue
+            
+        # Monitorar estado do modo espiral
+        if '; --- ESPIRAL START ---' in linha:
+            em_espiral = True
+            continue
+        elif '; --- ESPIRAL END ---' in linha:
+            em_espiral = False
+            continue
+            
         if linha:
             linhas_limpas.append(linha + '\n')
+            # Inserir priming após movimentos de travel (G0) fora do modo espiral
+            if priming_ativo and not em_espiral and linha.strip().startswith('G0') and ('X' in linha or 'Y' in linha):
+                if primeiro_g0:
+                    linhas_limpas.append(f"G1 E{priming_quantidade:.5f} F{priming_velocidade} ; Priming inicial\n")
+                    primeiro_g0 = False
+                else:
+                    linhas_limpas.append(f"G1 E{priming_quantidade:.5f} F{priming_velocidade} ; Priming apos travel\n")
     
     with open(arquivo_gcode, 'w', encoding='utf-8') as f:
         f.writelines(linhas_limpas)

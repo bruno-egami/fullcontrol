@@ -47,6 +47,15 @@ largura_extrusao = 3.0             # mm (Diâmetro do bico / largura do filete i
 altura_camada = 2.0                # mm (Altura de cada camada)
 resolucao_mm = 1.0                 # mm (Tamanho de cada segmento nas curvas poligonais)
 
+# --- Parâmetros de Priming (Clay DIW) ---
+priming_ativo = True                # Habilita priming automático após travels
+priming_quantidade = 10.0          # mm de extrusão extra de material (quantidade)
+priming_velocidade = 100           # mm/min (velocidade de priming)
+
+# --- Parâmetros de Transição para o Modo Vaso ---
+transicao_vaso_z_offset = 0.3       # mm (Espaço vertical extra no início do vasemode para evitar esmagamento)
+transicao_vaso_fluxo = 85.0         # % (Fluxo de transição reduzido para a primeira camada do vasemode)
+
 # --- Zonas de Configuração por Camada ---
 # Define a estrutura da base sólida e a transição para o vaso em vase mode (espiral).
 zonas_camadas = [
@@ -559,7 +568,10 @@ def gerar_espiral_concentrica_poligonal(aneis, start_x, start_y, out_to_in=True,
         if out_to_in:
             if i == n_aneis - 1:
                 # O último anel (mais interno) espira continuamente até o centroide (escala 1.0 a 0.0) para fechar o miolo
-                for j in range(n_pts):
+                start_j = 0
+                if len(pts_espiral) > 0 and math.hypot(pts_espiral[-1].x - anel_atual[0].x, pts_espiral[-1].y - anel_atual[0].y) < 1e-4:
+                    start_j = 1
+                for j in range(start_j, n_pts):
                     p = anel_atual[j]
                     t = j / (n_pts - 1) if n_pts > 1 else 1.0
                     dx = p.x - cx
@@ -571,7 +583,16 @@ def gerar_espiral_concentrica_poligonal(aneis, start_x, start_y, out_to_in=True,
                 lx, ly = pts_espiral[-1].x, pts_espiral[-1].y
             else:
                 # Anéis intermediários encolhem linearmente
-                for j in range(n_pts):
+                start_j = 0
+                if i > 0 and len(pts_espiral) > 0:
+                    p0 = anel_atual[0]
+                    dx0 = p0.x - cx
+                    dy0 = p0.y - cy
+                    rx0 = cx + dx0
+                    ry0 = cy + dy0
+                    if math.hypot(pts_espiral[-1].x - rx0, pts_espiral[-1].y - ry0) < 1e-4:
+                        start_j = 1
+                for j in range(start_j, n_pts):
                     p = anel_atual[j]
                     t = j / (n_pts - 1) if n_pts > 1 else 1.0
                     dx = p.x - cx
@@ -602,7 +623,19 @@ def gerar_espiral_concentrica_poligonal(aneis, start_x, start_y, out_to_in=True,
                 lx, ly = pts_espiral[-1].x, pts_espiral[-1].y
             else:
                 # Todos os demais anéis intermediários e externos expandem continuamente do raio anterior (d - espacamento) ao raio nominal (d)
-                for j in range(n_pts):
+                start_j = 0
+                if len(pts_espiral) > 0:
+                    p0 = anel_atual[0]
+                    dx0 = p0.x - cx
+                    dy0 = p0.y - cy
+                    d0 = math.hypot(dx0, dy0)
+                    if d0 >= 0.1:
+                        factor0 = (1.0 - espacamento / d0)
+                        rx0 = cx + dx0 * factor0
+                        ry0 = cy + dy0 * factor0
+                        if math.hypot(pts_espiral[-1].x - rx0, pts_espiral[-1].y - ry0) < 1e-4:
+                            start_j = 1
+                for j in range(start_j, n_pts):
                     p = anel_atual[j]
                     t = j / (n_pts - 1) if n_pts > 1 else 1.0
                     dx = p.x - cx
@@ -644,10 +677,6 @@ steps = []
 steps.append(fc.Printer(print_speed=velocidade_impressao, travel_speed=velocidade_travel))
 steps.append(fc.ManualGcode(text="M204 P500 T500"))
 steps.append(fc.ExtrusionGeometry(area_model='rectangle', width=largura_extrusao, height=altura_camada))
-
-steps.append(fc.ManualGcode(text="; --- PURGA PERSONALIZADA FORA DA MESA ---"))
-steps.append(fc.ManualGcode(text="G1 E25 F100 ; Purga"))
-steps.append(fc.ManualGcode(text="G92 E0.0"))
 
 # Calcular o travel inicial para a primeira camada
 camada_init = obter_zona(0)
@@ -723,6 +752,7 @@ else:
             steps.append(fc.Point(x=start_pt.x, y=start_pt.y, z=altura_camada))
             steps.append(fc.Extruder(on=True))
 
+ultimo_era_espiral = False
 # --- LOOP DE CAMADAS ---
 for camada in range(num_camadas):
     z_atual = altura_camada + (camada * altura_camada)
@@ -850,12 +880,27 @@ for camada in range(num_camadas):
         
     # --- MODO ESPIRAL CONTÍNUA (Vase Mode) ---
     if espiral:
-        z_inicio = z_atual - altura_camada
-        steps.append(fc.ManualGcode(text=f"M221 S{int(fluxo_perim_atual)}"))
+        steps.append(fc.ManualGcode(text="; --- ESPIRAL START ---"))
+        
+        # Identifica se é a camada de transição (primeira camada do vasemode)
+        eh_transicao_vaso = not ultimo_era_espiral
+        ultimo_era_espiral = True
+        
+        if eh_transicao_vaso:
+            z_inicio = z_atual - altura_camada + transicao_vaso_z_offset
+            fluxo_atual = transicao_vaso_fluxo
+        else:
+            z_inicio = z_atual - altura_camada
+            fluxo_atual = fluxo_perim_atual
+            
+        steps.append(fc.ManualGcode(text=f"M221 S{int(fluxo_atual)}"))
         start_x, start_y = get_last_point(steps)
         pts_espiral = gerar_espiral_helicoidal_vaso(poligono_camada, z_inicio, z_atual, start_x, start_y)
         adicionar_caminho_seguro(steps, pts_espiral)
         continue
+    else:
+        ultimo_era_espiral = False
+        steps.append(fc.ManualGcode(text="; --- ESPIRAL END ---"))
         
     # --- MODO TRADICIONAL DISCRETO (Base Sólida) ---
     if camada > 0:
@@ -934,16 +979,33 @@ if arquivos:
     arquivo_gcode = arquivos[-1]
     with open(arquivo_gcode, 'r', encoding='utf-8', errors='replace') as f:
         linhas = f.readlines()
-        
     linhas_limpas = []
+    primeiro_g0 = True
+    em_espiral = False
     for linha in linhas:
         linha = linha.rstrip('\r\n')
         if ';' in linha and not linha.lstrip().startswith(';'):
             linha = linha[:linha.index(';')].rstrip()
-        elif linha.lstrip().startswith(';') and linha.strip() not in (';STARTGCODE', ';ENDGCODE'):
+        elif linha.lstrip().startswith(';') and linha.strip() not in (';STARTGCODE', ';ENDGCODE', '; --- ESPIRAL START ---', '; --- ESPIRAL END ---'):
             continue
+            
+        # Monitorar estado do modo espiral
+        if '; --- ESPIRAL START ---' in linha:
+            em_espiral = True
+            continue
+        elif '; --- ESPIRAL END ---' in linha:
+            em_espiral = False
+            continue
+            
         if linha:
             linhas_limpas.append(linha + '\n')
+            # Inserir priming após movimentos de travel (G0) fora do modo espiral
+            if priming_ativo and not em_espiral and linha.strip().startswith('G0') and ('X' in linha or 'Y' in linha):
+                if primeiro_g0:
+                    linhas_limpas.append(f"G1 E{priming_quantidade:.5f} F{priming_velocidade} ; Priming inicial\n")
+                    primeiro_g0 = False
+                else:
+                    linhas_limpas.append(f"G1 E{priming_quantidade:.5f} F{priming_velocidade} ; Priming apos travel\n")
             
     with open(arquivo_gcode, 'w', encoding='utf-8') as f:
         f.writelines(linhas_limpas)
