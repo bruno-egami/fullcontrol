@@ -5,22 +5,12 @@ import math
 # 1. CONFIGURAÇÕES DO USUÁRIO (PARÂMETROS DO AMBIENTE E GEOMETRIA)
 # ==============================================================================
 
-# --- Parâmetros Físicos da Extrusão ---
-largura_extrusao = 3.0             # mm (Diâmetro do bico / largura do filete impresso)
-altura_camada = 1.5                # mm (Altura de cada camada)
-
-# --- Parâmetros de Priming (Clay DIW) ---
-priming_ativo = True                # Habilita priming automático após travels
-priming_quantidade = 10.0          # mm de extrusão extra de material (quantidade)
-priming_velocidade = 100           # mm/min (velocidade de priming)
-
-# --- Parâmetros de Transição para o Modo Vaso ---
-transicao_vaso_z_offset = 0.5       # mm (Espaço vertical extra no início do vasemode para evitar esmagamento)
-transicao_vaso_fluxo = 85.0         # % (Fluxo de transição reduzido para a primeira camada do vasemode)
+# --- Configuração Compartilhada da Impressora (Bico, Priming, Wipe, Vaso) ---
+from config_impressora import *
 
 # --- Parâmetros Geométricos do Prisma Inclinado ---
-x_centro, y_centro = 250.0, 50.0   # Centro geométrico da peça na mesa
-largura_x = 20.0                   # Largura física da peça no eixo X na primeira camada
+x_centro, y_centro = 240.0, 50.0   # Centro geométrico da peça na mesa
+largura_x = 21.0                   # Largura física da peça no eixo X na primeira camada
 comprimento_y = 60.0               # Comprimento físico da peça no eixo Y na primeira camada
 z_max_desejado = 10.0              # Altura final total da peça no eixo Z
 angulo_parede = 90.0               # Graus (90 = vertical, <90 = afunila para dentro, >90 = expande para fora)
@@ -32,18 +22,18 @@ zonas_camadas = [
         'num_perimetros': 1,
         'infill_percent': 100.0,
         'infill_pattern': 'concentric',
-        'fluxo_perimetro': 110.0,
-        'fluxo_infill': 110.0,
+        'fluxo_perimetro': 120.0,
+        'fluxo_infill': 120.0,
         'espiral': False
     },
     {
-        'camada_inicio': 4,
+        'camada_inicio': 2,
         'num_perimetros': 1,
-        'infill_percent': 0.0,
-        'infill_pattern': 'zigzag',
+        'infill_percent': 100.0,
+        'infill_pattern': 'concentric',
         'fluxo_perimetro': 100.0,
-        'fluxo_infill': 150.0,
-        'espiral': True
+        'fluxo_infill': 100.0,
+        'espiral': False
     }
 ]
 
@@ -62,7 +52,7 @@ velocidade_impressao = 750         # mm/min (10 mm/s)
 velocidade_travel = 1500           # mm/min (50 mm/s)
 
 # --- Controle Extra de Infill ---
-sobreposicao_infill = 0.5          # mm (Sobreposição do infill na parede interna)
+sobreposicao_infill = 0.0          # mm (Sobreposição do infill na parede interna)
 
 # ==============================================================================
 # 2. INICIALIZAÇÃO E COMANDOS DE FIRMWARE
@@ -103,8 +93,13 @@ def get_last_point(steps):
             return step.x, step.y
     return 0, 0
 
-def adicionar_caminho_seguro(steps, pts):
+def adicionar_caminho_seguro(steps, pts, tipo=None):
     if not pts: return
+    if tipo == 'perimetro':
+        steps.append(fc.ManualGcode(text="; --- PERIMETRO START ---"))
+    elif tipo == 'infill':
+        steps.append(fc.ManualGcode(text="; --- INFILL START ---"))
+        
     lx, ly = get_last_point(steps)
     dist = math.hypot(pts[0].x - lx, pts[0].y - ly)
     if dist > 0.5:
@@ -114,6 +109,11 @@ def adicionar_caminho_seguro(steps, pts):
         steps.extend(pts[1:])
     else:
         steps.extend(pts)
+        
+    if tipo == 'perimetro':
+        steps.append(fc.ManualGcode(text="; --- PERIMETRO END ---"))
+    elif tipo == 'infill':
+        steps.append(fc.ManualGcode(text="; --- INFILL END ---"))
 
 def orientar_caminho(pts, start_x, start_y):
     if not pts: return pts
@@ -530,7 +530,7 @@ for camada in range(num_camadas):
             num_perimetros, x_min_camada, x_max_camada, y_min_camada, y_max_camada, z_atual, recuo, largura_extrusao,
             start_x, start_y, out_to_in=True, anti_horario=True
         )
-        adicionar_caminho_seguro(steps, pts_perim)
+        adicionar_caminho_seguro(steps, pts_perim, tipo='perimetro')
         
         if infill_percent > 0:
             steps.append(fc.ManualGcode(text=f"M221 S{int(fluxo_infill_atual)}"))
@@ -540,23 +540,23 @@ for camada in range(num_camadas):
                     x_min_camada, x_max_camada, y_min_camada, y_max_camada, z_atual, innermost_offset + espacamento_alvo, espacamento_alvo,
                     lx, ly, out_to_in=True, anti_horario=True
                 )
-                adicionar_caminho_seguro(steps, pts_infill)
+                adicionar_caminho_seguro(steps, pts_infill, tipo='infill')
                 
             elif infill_pattern == 'grid':
                 pts1 = gerar_infill_rotacionado(angulo_atual, x_infill_bound_min, x_infill_bound_max, y_infill_bound_min, y_infill_bound_max, z_atual, espacamento_alvo * 2, 'zigzag', 0, 0, 0)
                 pts2 = gerar_infill_rotacionado(angulo_atual + 90, x_infill_bound_min, x_infill_bound_max, y_infill_bound_min, y_infill_bound_max, z_atual, espacamento_alvo * 2, 'zigzag', 0, 0, 0)
                 
                 lx, ly = get_last_point(steps)
-                adicionar_caminho_seguro(steps, orientar_caminho(pts1, lx, ly))
+                adicionar_caminho_seguro(steps, orientar_caminho(pts1, lx, ly), tipo='infill')
                 lx, ly = get_last_point(steps)
-                adicionar_caminho_seguro(steps, orientar_caminho(pts2, lx, ly))
+                adicionar_caminho_seguro(steps, orientar_caminho(pts2, lx, ly), tipo='infill')
                 
             elif infill_pattern in ['zigzag', 'gyroid']:
                 phase = math.pi if not eh_par else 0
                 pts_infill = gerar_infill_rotacionado(angulo_atual, x_infill_bound_min, x_infill_bound_max, y_infill_bound_min, y_infill_bound_max, z_atual, espacamento_alvo, infill_pattern, phase, amplitude_gyroid, comprimento_onda_gyroid)
                 
                 lx, ly = get_last_point(steps)
-                adicionar_caminho_seguro(steps, orientar_caminho(pts_infill, lx, ly))
+                adicionar_caminho_seguro(steps, orientar_caminho(pts_infill, lx, ly), tipo='infill')
             
     else:
         # --- INFILL -> PERÍMETRO ---
@@ -568,23 +568,23 @@ for camada in range(num_camadas):
                     x_min_camada, x_max_camada, y_min_camada, y_max_camada, z_atual, innermost_offset + espacamento_alvo, espacamento_alvo,
                     lx, ly, out_to_in=False, anti_horario=False
                 )
-                adicionar_caminho_seguro(steps, pts_infill)
+                adicionar_caminho_seguro(steps, pts_infill, tipo='infill')
                 
             elif infill_pattern == 'grid':
                 pts1 = gerar_infill_rotacionado(angulo_atual, x_infill_bound_min, x_infill_bound_max, y_infill_bound_min, y_infill_bound_max, z_atual, espacamento_alvo * 2, 'zigzag', 0, 0, 0)
                 pts2 = gerar_infill_rotacionado(angulo_atual + 90, x_infill_bound_min, x_infill_bound_max, y_infill_bound_min, y_infill_bound_max, z_atual, espacamento_alvo * 2, 'zigzag', 0, 0, 0)
                 
                 lx, ly = get_last_point(steps)
-                adicionar_caminho_seguro(steps, orientar_caminho(pts1, lx, ly))
+                adicionar_caminho_seguro(steps, orientar_caminho(pts1, lx, ly), tipo='infill')
                 lx, ly = get_last_point(steps)
-                adicionar_caminho_seguro(steps, orientar_caminho(pts2, lx, ly))
+                adicionar_caminho_seguro(steps, orientar_caminho(pts2, lx, ly), tipo='infill')
                 
             elif infill_pattern in ['zigzag', 'gyroid']:
                 phase = math.pi if not eh_par else 0
                 pts_infill = gerar_infill_rotacionado(angulo_atual, x_infill_bound_min, x_infill_bound_max, y_infill_bound_min, y_infill_bound_max, z_atual, espacamento_alvo, infill_pattern, phase, amplitude_gyroid, comprimento_onda_gyroid)
                 
                 lx, ly = get_last_point(steps)
-                adicionar_caminho_seguro(steps, orientar_caminho(pts_infill, lx, ly))
+                adicionar_caminho_seguro(steps, orientar_caminho(pts_infill, lx, ly), tipo='infill')
             
         # 2. Perímetro
         steps.append(fc.ManualGcode(text=f"M221 S{int(fluxo_perim_atual)}"))
@@ -593,7 +593,29 @@ for camada in range(num_camadas):
             num_perimetros, x_min_camada, x_max_camada, y_min_camada, y_max_camada, z_atual, recuo, largura_extrusao,
             start_x, start_y, out_to_in=False, anti_horario=False
         )
-        adicionar_caminho_seguro(steps, pts_perim)
+        adicionar_caminho_seguro(steps, pts_perim, tipo='perimetro')
+
+# --- Aplicação do Wipe Final (Limpeza/Arrasto do Bico) ---
+if wipe_final_ativo:
+    # Encontra os dois últimos pontos de extrusão para determinar a direção
+    pontos_extrusao = []
+    for step in reversed(steps):
+        if hasattr(step, 'x') and step.x is not None:
+            pontos_extrusao.append(step)
+            if len(pontos_extrusao) == 2:
+                break
+    if len(pontos_extrusao) == 2:
+        p_last, p_prev = pontos_extrusao[0], pontos_extrusao[1]
+        dx = p_last.x - p_prev.x
+        dy = p_last.y - p_prev.y
+        d = math.hypot(dx, dy)
+        if d > 0.1:
+            x_wipe = p_last.x - (dx / d) * wipe_final_distancia
+            y_wipe = p_last.y - (dy / d) * wipe_final_distancia
+            z_wipe = p_last.z + wipe_final_subida_z
+            steps.append(fc.Extruder(on=False))
+            steps.append(fc.Point(x=x_wipe, y=y_wipe, z=z_wipe))
+            steps.append(fc.ManualGcode(text="; --- WIPE FINAL EXECUTADO ---"))
 
 steps.append(fc.Extruder(on=False))
 
@@ -625,30 +647,68 @@ if arquivos:
     linhas_limpas = []
     primeiro_g0 = True
     em_espiral = False
+    em_perimetro = False
+    em_infill = False
+    
     for linha in linhas:
         linha = linha.rstrip('\r\n')
+        
+        # Filtra comentários genéricos, mas preserva os marcadores estruturais sem duplicar o G-code
         if ';' in linha and not linha.lstrip().startswith(';'):
-            linha = linha[:linha.index(';')].rstrip()
-        elif linha.lstrip().startswith(';') and linha.strip() not in (';STARTGCODE', ';ENDGCODE', '; --- ESPIRAL START ---', '; --- ESPIRAL END ---'):
+            comment_idx = linha.index(';')
+            linha = linha[:comment_idx].rstrip()
+        elif linha.lstrip().startswith(';') and linha.strip() not in (
+            ';STARTGCODE', ';ENDGCODE', 
+            '; --- ESPIRAL START ---', '; --- ESPIRAL END ---',
+            '; --- PERIMETRO START ---', '; --- PERIMETRO END ---',
+            '; --- INFILL START ---', '; --- INFILL END ---'
+        ):
             continue
             
-        # Monitorar estado do modo espiral
+        # Monitoramento e processamento de estado
         if '; --- ESPIRAL START ---' in linha:
             em_espiral = True
+            linhas_limpas.append(linha + '\n')
             continue
         elif '; --- ESPIRAL END ---' in linha:
             em_espiral = False
+            linhas_limpas.append(linha + '\n')
+            continue
+            
+        elif '; --- PERIMETRO START ---' in linha:
+            em_perimetro = True
+            linhas_limpas.append(linha + '\n')
+            continue
+        elif '; --- PERIMETRO END ---' in linha:
+            em_perimetro = False
+            if priming_ativo and priming_fim_perimetro and not em_espiral:
+                linhas_limpas.append(f"G1 E{priming_perimetro_fim_qtd:.5f} F{priming_perimetro_fim_vel} ; Retracao/Alivio fim perimetro\n")
+            linhas_limpas.append(linha + '\n')
+            continue
+            
+        elif '; --- INFILL START ---' in linha:
+            em_infill = True
+            linhas_limpas.append(linha + '\n')
+            continue
+        elif '; --- INFILL END ---' in linha:
+            em_infill = False
+            if priming_ativo and priming_fim_infill and not em_espiral:
+                linhas_limpas.append(f"G1 E{priming_infill_fim_qtd:.5f} F{priming_infill_fim_vel} ; Retracao/Alivio fim infill\n")
+            linhas_limpas.append(linha + '\n')
             continue
             
         if linha:
+            is_travel = linha.strip().startswith('G0') and ('X' in linha or 'Y' in linha)
             linhas_limpas.append(linha + '\n')
-            # Inserir priming após movimentos de travel (G0) fora do modo espiral
-            if priming_ativo and not em_espiral and linha.strip().startswith('G0') and ('X' in linha or 'Y' in linha):
+            
+            if is_travel and priming_ativo and not em_espiral:
                 if primeiro_g0:
-                    linhas_limpas.append(f"G1 E{priming_quantidade:.5f} F{priming_velocidade} ; Priming inicial\n")
+                    linhas_limpas.append(f"G1 E{priming_inicial_qtd:.5f} F{priming_inicial_vel} ; Purga inicial para carregar o bico\n")
                     primeiro_g0 = False
-                else:
-                    linhas_limpas.append(f"G1 E{priming_quantidade:.5f} F{priming_velocidade} ; Priming apos travel\n")
+                elif em_perimetro and priming_inicio_perimetro:
+                    linhas_limpas.append(f"G1 E{priming_perimetro_inicio_qtd:.5f} F{priming_perimetro_inicio_vel} ; Purga inicio perimetro\n")
+                elif em_infill and priming_inicio_infill:
+                    linhas_limpas.append(f"G1 E{priming_infill_inicio_qtd:.5f} F{priming_infill_inicio_vel} ; Purga inicio infill\n")
     
     with open(arquivo_gcode, 'w', encoding='utf-8') as f:
         f.writelines(linhas_limpas)

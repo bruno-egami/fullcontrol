@@ -22,6 +22,11 @@ A impressão direta com pastas (DIW), como argila, cerâmica ou outros materiais
 
 Os scripts deste repositório foram desenhados especificamente para atacar estes problemas, priorizando caminhos de ferramenta ininterruptos e controle preciso de fluxo, permitindo que a geometria seja ditada pela física do material, e não pelas limitações dos algoritmos de fatiamento genéricos.
 
+### 🔧 Controle Avançado de Pressão (Clay DIW)
+Para superar os desafios mecânicos e fluídicos da argila, implementamos um sistema de **controle ativo de pressão** em todos os geradores paramétricos do repositório:
+* **Priming Semântico Independente:** Permite configurar de forma individual o volume de extrusão (`qtd`) e a velocidade (`vel`) da purga inicial para carregar o bico, do início de perímetros e do início de infill.
+* **Alívio/Retração Independente no Fim de Percurso:** Permite configurar a velocidade e quantidade de retração no final de cada segmento impresso, distinguindo perímetros e infill de forma isolada.
+* **Arrasto/Wipe Tridimensional Final (Nozzle Takeoff):** Ao término da impressão, o bico retrocede automaticamente sobre o próprio filete recém-impresso (ex: `6.0 mm`) e se eleva gradualmente no eixo Z (ex: `0.5 mm`) com o extrusor desligado. Isso cisa a tensão superficial do fluido, cortando a gota sem repuxar material e finalizando a peça com acabamento perfeito.
 
 ---
 
@@ -71,6 +76,11 @@ Um otimizador de percurso universal e inteligente focado nos princípios do Full
   - **Infill Zigzag Otimizado:** Linhas contínuas com alternância de direção a cada camada.
   - **Infill Concêntrico Contínuo:** Espiralização contínua com transições cossinoidais ultra-suaves em S-curve entre anéis concêntricos.
 * **Detecção Universal de Parâmetros:** Identifica automaticamente configurações de altura de camada, diâmetro do bico/filete, diâmetro do filamento e modo de extrusão (M82/M83), preservando as alturas de camada originais programadas no fatiador.
+
+
+### 6. Configuração Compartilhada da Impressora (`config_impressora.py`)
+Centraliza todas as definições físicas, de bico/extrusão, de priming independente por percurso, de transição de vaso e de wipe final em um único arquivo unificado de cabeçalho compartilhado.
+* **Única Fonte de Verdade (Single Source of Truth):** Elimina a redundância e duplicação de dados entre os diferentes scripts. Quando você ajusta o diâmetro do bico (`largura_extrusao`), a altura de camada base ou recalibra as velocidades e vazões em `config_impressora.py`, todos os 5 geradores paramétricos lêem de forma sincronizada e geram o G-code perfeitamente coerente de forma automática!
 
 ---
 
