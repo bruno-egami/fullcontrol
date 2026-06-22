@@ -2,3 +2,4 @@ plotly
 pydantic
 numpy
 shapely
+customtkinter
