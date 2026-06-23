@@ -7,6 +7,7 @@ import config_impressora
 import motor_mestre
 import cilindro_inclinado
 import prisma_inclinado
+import bridging_teste
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -48,7 +49,12 @@ class Piece:
             'transicao_vaso_fluxo': 85.0,
             'wipe_final_ativo': 'True',
             'wipe_final_distancia': 6.0,
-            'wipe_final_subida_z': 0.5
+            'wipe_final_subida_z': 0.5,
+            'velocidade_impressao': 20.0,
+            'aceleracao_impressao': 500,
+            'velocidade_primeira_camada': 10.0,
+            'aceleracao_primeira_camada': 500,
+            'velocidade_travel': 50.0
         }
         
         if tipo == 'cilindro':
@@ -56,6 +62,15 @@ class Piece:
         elif tipo == 'prisma':
             self.config['largura_x'] = 30.0
             self.config['comprimento_y'] = 30.0
+        elif tipo == 'bridging':
+            self.config['comprimento_braco'] = 80.0
+            self.config['angulo_abertura'] = 45.0
+            self.config['espacamento_bridging'] = 4.0
+            self.config['num_camadas_base'] = 4
+            self.config['num_perimetros'] = 4
+            self.config['velocidade_base'] = 20.0
+            self.config['velocidade_ponte'] = 10.0
+            self.config['ancora_pausa_ms'] = 500
 
 class PrintQueueApp(ctk.CTk):
     def __init__(self):
@@ -83,11 +98,14 @@ class PrintQueueApp(ctk.CTk):
         self.frame_botoes_add = ctk.CTkFrame(self.left_panel, fg_color="transparent")
         self.frame_botoes_add.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
         
-        self.btn_add_cilindro = ctk.CTkButton(self.frame_botoes_add, text="+ Cilindro", width=100, command=lambda: self.adicionar_peca('cilindro'))
-        self.btn_add_cilindro.pack(side="left", padx=5)
+        self.btn_add_cilindro = ctk.CTkButton(self.frame_botoes_add, text="+ Cilindro", width=65, command=lambda: self.adicionar_peca('cilindro'))
+        self.btn_add_cilindro.pack(side="left", padx=2)
         
-        self.btn_add_prisma = ctk.CTkButton(self.frame_botoes_add, text="+ Prisma", width=100, command=lambda: self.adicionar_peca('prisma'))
-        self.btn_add_prisma.pack(side="right", padx=5)
+        self.btn_add_prisma = ctk.CTkButton(self.frame_botoes_add, text="+ Prisma", width=65, command=lambda: self.adicionar_peca('prisma'))
+        self.btn_add_prisma.pack(side="left", padx=2)
+        
+        self.btn_add_bridging = ctk.CTkButton(self.frame_botoes_add, text="+ Bridging", width=65, command=lambda: self.adicionar_peca('bridging'))
+        self.btn_add_bridging.pack(side="left", padx=2)
 
         # Lista de peças (Scrollable)
         self.lista_pecas_frame = ctk.CTkScrollableFrame(self.left_panel)
@@ -140,6 +158,18 @@ class PrintQueueApp(ctk.CTk):
             self.limpar_painel_direito()
         self.atualizar_lista_ui()
 
+    def mover_peca_cima(self, peca):
+        idx = self.pecas_fila.index(peca)
+        if idx > 0:
+            self.pecas_fila[idx - 1], self.pecas_fila[idx] = self.pecas_fila[idx], self.pecas_fila[idx - 1]
+            self.atualizar_lista_ui()
+
+    def mover_peca_baixo(self, peca):
+        idx = self.pecas_fila.index(peca)
+        if idx < len(self.pecas_fila) - 1:
+            self.pecas_fila[idx + 1], self.pecas_fila[idx] = self.pecas_fila[idx], self.pecas_fila[idx + 1]
+            self.atualizar_lista_ui()
+
     def selecionar_peca(self, peca):
         # Salva as alterações da peça anterior antes de mudar
         self.salvar_inputs_na_peca_selecionada()
@@ -160,11 +190,17 @@ class PrintQueueApp(ctk.CTk):
             cor_bg = "gray25" if peca == self.peca_selecionada else "transparent"
             row_frame.configure(fg_color=cor_bg)
             
+            btn_remover = ctk.CTkButton(row_frame, text="X", width=30, fg_color="red", hover_color="darkred", command=lambda p=peca: self.remover_peca(p))
+            btn_remover.pack(side="right", padx=(2, 5))
+            
+            btn_down = ctk.CTkButton(row_frame, text="▼", width=30, fg_color="gray40", command=lambda p=peca: self.mover_peca_baixo(p))
+            btn_down.pack(side="right", padx=2)
+            
+            btn_up = ctk.CTkButton(row_frame, text="▲", width=30, fg_color="gray40", command=lambda p=peca: self.mover_peca_cima(p))
+            btn_up.pack(side="right", padx=2)
+            
             btn_nome = ctk.CTkButton(row_frame, text=peca.nome, fg_color="transparent", anchor="w", command=lambda p=peca: self.selecionar_peca(p))
             btn_nome.pack(side="left", fill="x", expand=True, padx=5)
-            
-            btn_remover = ctk.CTkButton(row_frame, text="X", width=30, fg_color="red", hover_color="darkred", command=lambda p=peca: self.remover_peca(p))
-            btn_remover.pack(side="right", padx=5)
 
     def limpar_painel_direito(self):
         for widget in self.frame_inputs.winfo_children():
@@ -266,55 +302,73 @@ class PrintQueueApp(ctk.CTk):
         elif self.peca_selecionada.tipo == 'prisma':
             add_input("Largura X (mm):", "largura_x", self.peca_selecionada.config.get('largura_x', 30))
             add_input("Comprimento Y (mm):", "comprimento_y", self.peca_selecionada.config.get('comprimento_y', 30))
+        elif self.peca_selecionada.tipo == 'bridging':
+            add_input("Compr. do Braço (mm):", "comprimento_braco", self.peca_selecionada.config.get('comprimento_braco', 80.0))
+            add_input("Ângulo de Abertura (º):", "angulo_abertura", self.peca_selecionada.config.get('angulo_abertura', 45.0))
+            add_input("Espaçamento Pontes (mm):", "espacamento_bridging", self.peca_selecionada.config.get('espacamento_bridging', 4.0))
+            add_input("Num. Camadas Base:", "num_camadas_base", self.peca_selecionada.config.get('num_camadas_base', 4))
+            add_input("Num. Perímetros Base:", "num_perimetros", self.peca_selecionada.config.get('num_perimetros', 4))
+            add_input("Velocidade Base (mm/s):", "velocidade_base", self.peca_selecionada.config.get('velocidade_base', 20.0))
+            add_input("Vel. Ponte (mm/s):", "velocidade_ponte", self.peca_selecionada.config.get('velocidade_ponte', 10.0))
+            add_input("Pausa na Âncora (ms):", "ancora_pausa_ms", self.peca_selecionada.config.get('ancora_pausa_ms', 500))
 
-        # Separador - Zonas de Camada
-        frame_zonas_header = ctk.CTkFrame(self.frame_inputs, fg_color="transparent")
-        frame_zonas_header.grid(row=row_idx, column=0, columnspan=2, pady=(15, 5), sticky="ew")
-        
-        lbl_zonas = ctk.CTkLabel(frame_zonas_header, text="--- Zonas de Camadas ---", text_color="gray")
-        lbl_zonas.pack(side="left")
-        
-        btn_add_zona = ctk.CTkButton(frame_zonas_header, text="+ Zona", width=60, command=self.add_zona_ui)
-        btn_add_zona.pack(side="right", padx=5)
-        
-        btn_rem_zona = ctk.CTkButton(frame_zonas_header, text="- Zona", width=60, fg_color="red", hover_color="darkred", command=self.rem_zona_ui)
-        btn_rem_zona.pack(side="right")
-        
-        row_idx += 1
-        
-        zonas = self.peca_selecionada.config.get('zonas_camadas', [])
-        for i, zona in enumerate(zonas):
-            lbl_z = ctk.CTkLabel(self.frame_inputs, text=f"** Zona {i+1} **", font=ctk.CTkFont(weight="bold"))
-            lbl_z.grid(row=row_idx, column=0, columnspan=2, pady=(10, 0)); row_idx += 1
+        if self.peca_selecionada.tipo in ['cilindro', 'prisma']:
+            # Separador - Zonas de Camada
+            frame_zonas_header = ctk.CTkFrame(self.frame_inputs, fg_color="transparent")
+            frame_zonas_header.grid(row=row_idx, column=0, columnspan=2, pady=(15, 5), sticky="ew")
             
-            add_input("Qtd Camadas:", f"zona_{i}_qtd_camadas", zona.get('qtd_camadas', 999))
-            add_input("Nº Perímetros:", f"zona_{i}_num_perimetros", zona.get('num_perimetros', 1))
-            add_input("Infill (%) [0 a 100]:", f"zona_{i}_infill_percent", zona.get('infill_percent', 100.0))
-            add_combobox("Padrão Infill:", f"zona_{i}_infill_pattern", zona.get('infill_pattern', 'concentric'), ["concentric", "grid", "zigzag", "gyroid"])
-            add_input("Fluxo Perímetro (%):", f"zona_{i}_fluxo_perimetro", zona.get('fluxo_perimetro', 100.0))
-            add_input("Fluxo Infill (%):", f"zona_{i}_fluxo_infill", zona.get('fluxo_infill', 100.0))
-            add_combobox("Modo Espiral:", f"zona_{i}_espiral", str(zona.get('espiral', 'False')), ["True", "False"])
-        
-        lbl_sep4 = ctk.CTkLabel(self.frame_inputs, text="--- Gyroid Específicos ---", text_color="gray")
-        lbl_sep4.grid(row=row_idx, column=0, columnspan=2, pady=(15, 5)); row_idx += 1
-        
-        add_input("Amplitude Gyroid:", "amplitude_gyroid", self.peca_selecionada.config.get('amplitude_gyroid', 2.0))
-        add_input("Comp. Onda Gyroid:", "comprimento_onda_gyroid", self.peca_selecionada.config.get('comprimento_onda_gyroid', 15.0))
-        
-        lbl_sep5 = ctk.CTkLabel(self.frame_inputs, text="--- Extrusão e Fluxo ---", text_color="gray")
-        lbl_sep5.grid(row=row_idx, column=0, columnspan=2, pady=(15, 5)); row_idx += 1
-        
-        add_input("Resolução Curvas (mm):", "resolucao_mm", self.peca_selecionada.config.get('resolucao_mm', 1.0))
-        add_input("Fluxo Perímetro (%):", "fluxo_perimetro", self.peca_selecionada.config.get('fluxo_perimetro', 100.0))
-        add_input("Fluxo Infill (%):", "fluxo_infill", self.peca_selecionada.config.get('fluxo_infill', 100.0))
-        
-        lbl_sep6 = ctk.CTkLabel(self.frame_inputs, text="--- Especiais ---", text_color="gray")
-        lbl_sep6.grid(row=row_idx, column=0, columnspan=2, pady=(15, 5)); row_idx += 1
-        
-        add_combobox("Modo Vaso/Espiral:", "espiral", self.peca_selecionada.config.get('espiral', 'False'), ["True", "False"])
-        add_input("Vasemode Offset Z (mm):", "transicao_vaso_z_offset", self.peca_selecionada.config.get('transicao_vaso_z_offset', 0.5))
-        add_input("Vasemode Fluxo (%):", "transicao_vaso_fluxo", self.peca_selecionada.config.get('transicao_vaso_fluxo', 85.0))
-        add_combobox("Alternar Ordem Camadas:", "alternar_ordem_camadas", self.peca_selecionada.config.get('alternar_ordem_camadas', 'True'), ["True", "False"])
+            lbl_zonas = ctk.CTkLabel(frame_zonas_header, text="--- Zonas de Camadas ---", text_color="gray")
+            lbl_zonas.pack(side="left")
+            
+            btn_add_zona = ctk.CTkButton(frame_zonas_header, text="+ Zona", width=60, command=self.add_zona_ui)
+            btn_add_zona.pack(side="right", padx=5)
+            
+            btn_rem_zona = ctk.CTkButton(frame_zonas_header, text="- Zona", width=60, fg_color="red", hover_color="darkred", command=self.rem_zona_ui)
+            btn_rem_zona.pack(side="right")
+            
+            row_idx += 1
+            
+            zonas = self.peca_selecionada.config.get('zonas_camadas', [])
+            for i, zona in enumerate(zonas):
+                lbl_z = ctk.CTkLabel(self.frame_inputs, text=f"** Zona {i+1} **", font=ctk.CTkFont(weight="bold"))
+                lbl_z.grid(row=row_idx, column=0, columnspan=2, pady=(10, 0)); row_idx += 1
+                
+                add_input("Qtd Camadas:", f"zona_{i}_qtd_camadas", zona.get('qtd_camadas', 999))
+                add_input("Nº Perímetros:", f"zona_{i}_num_perimetros", zona.get('num_perimetros', 1))
+                add_input("Infill (%) [0 a 100]:", f"zona_{i}_infill_percent", zona.get('infill_percent', 100.0))
+                add_combobox("Padrão Infill:", f"zona_{i}_infill_pattern", zona.get('infill_pattern', 'concentric'), ["concentric", "grid", "zigzag", "gyroid"])
+                add_input("Fluxo Perímetro (%):", f"zona_{i}_fluxo_perimetro", zona.get('fluxo_perimetro', 100.0))
+                add_input("Fluxo Infill (%):", f"zona_{i}_fluxo_infill", zona.get('fluxo_infill', 100.0))
+                add_combobox("Modo Espiral:", f"zona_{i}_espiral", str(zona.get('espiral', 'False')), ["True", "False"])
+            
+            lbl_sep4 = ctk.CTkLabel(self.frame_inputs, text="--- Gyroid Específicos ---", text_color="gray")
+            lbl_sep4.grid(row=row_idx, column=0, columnspan=2, pady=(15, 5)); row_idx += 1
+            
+            add_input("Amplitude Gyroid:", "amplitude_gyroid", self.peca_selecionada.config.get('amplitude_gyroid', 2.0))
+            add_input("Comp. Onda Gyroid:", "comprimento_onda_gyroid", self.peca_selecionada.config.get('comprimento_onda_gyroid', 15.0))
+            
+            lbl_sep5 = ctk.CTkLabel(self.frame_inputs, text="--- Extrusão e Fluxo ---", text_color="gray")
+            lbl_sep5.grid(row=row_idx, column=0, columnspan=2, pady=(15, 5)); row_idx += 1
+            
+            add_input("Resolução Curvas (mm):", "resolucao_mm", self.peca_selecionada.config.get('resolucao_mm', 1.0))
+            add_input("Fluxo Perímetro (%):", "fluxo_perimetro", self.peca_selecionada.config.get('fluxo_perimetro', 100.0))
+            add_input("Fluxo Infill (%):", "fluxo_infill", self.peca_selecionada.config.get('fluxo_infill', 100.0))
+            
+            lbl_sep_vel = ctk.CTkLabel(self.frame_inputs, text="--- Velocidades e Aceleração ---", text_color="gray")
+            lbl_sep_vel.grid(row=row_idx, column=0, columnspan=2, pady=(15, 5)); row_idx += 1
+            
+            add_input("Vel. Primeira Camada (mm/s):", "velocidade_primeira_camada", self.peca_selecionada.config.get('velocidade_primeira_camada', 10.0))
+            add_input("Acc. Primeira Camada (mm/s²):", "aceleracao_primeira_camada", self.peca_selecionada.config.get('aceleracao_primeira_camada', 500))
+            add_input("Velocidade Impressão (mm/s):", "velocidade_impressao", self.peca_selecionada.config.get('velocidade_impressao', 20.0))
+            add_input("Aceleração Impressão (mm/s²):", "aceleracao_impressao", self.peca_selecionada.config.get('aceleracao_impressao', 500))
+            add_input("Velocidade Travel (mm/s):", "velocidade_travel", self.peca_selecionada.config.get('velocidade_travel', 50.0))
+            
+            lbl_sep6 = ctk.CTkLabel(self.frame_inputs, text="--- Especiais ---", text_color="gray")
+            lbl_sep6.grid(row=row_idx, column=0, columnspan=2, pady=(15, 5)); row_idx += 1
+            
+            add_input("Vasemode Offset Z (mm):", "transicao_vaso_z_offset", self.peca_selecionada.config.get('transicao_vaso_z_offset', 0.5))
+            add_input("Vasemode Fluxo (%):", "transicao_vaso_fluxo", self.peca_selecionada.config.get('transicao_vaso_fluxo', 85.0))
+            add_combobox("Alternar Ordem Camadas:", "alternar_ordem_camadas", self.peca_selecionada.config.get('alternar_ordem_camadas', 'True'), ["True", "False"])
         
         lbl_sep7 = ctk.CTkLabel(self.frame_inputs, text="--- Wipe Final ---", text_color="gray")
         lbl_sep7.grid(row=row_idx, column=0, columnspan=2, pady=(15, 5)); row_idx += 1
@@ -373,24 +427,28 @@ class PrintQueueApp(ctk.CTk):
             'altura_camada': 'Altura da Camada (mm)',
             'priming_ativo': 'Ativar Purga/Priming Geral',
             'priming_inicial_qtd': 'Carga Inicial: Quantidade (mm)',
-            'priming_inicial_vel': 'Carga Inicial: Velocidade (mm/min)',
+            'priming_inicial_vel': 'Carga Inicial: Velocidade (mm/s)',
             'priming_inicio_perimetro': 'Perímetro: Ativar Purga no Início',
             'priming_perimetro_inicio_qtd': 'Perímetro Início: Quantidade (mm)',
-            'priming_perimetro_inicio_vel': 'Perímetro Início: Velocidade (mm/min)',
+            'priming_perimetro_inicio_vel': 'Perímetro Início: Velocidade (mm/s)',
             'priming_fim_perimetro': 'Perímetro: Ativar Retração no Fim',
             'priming_perimetro_fim_qtd': 'Perímetro Fim: Retração (mm)',
-            'priming_perimetro_fim_vel': 'Perímetro Fim: Velocidade (mm/min)',
+            'priming_perimetro_fim_vel': 'Perímetro Fim: Velocidade (mm/s)',
             'priming_inicio_infill': 'Infill: Ativar Purga no Início',
             'priming_infill_inicio_qtd': 'Infill Início: Quantidade (mm)',
-            'priming_infill_inicio_vel': 'Infill Início: Velocidade (mm/min)',
+            'priming_infill_inicio_vel': 'Infill Início: Velocidade (mm/s)',
             'priming_fim_infill': 'Infill: Ativar Retração no Fim',
             'priming_infill_fim_qtd': 'Infill Fim: Retração (mm)',
-            'priming_infill_fim_vel': 'Infill Fim: Velocidade (mm/min)',
+            'priming_infill_fim_vel': 'Infill Fim: Velocidade (mm/s)',
             'wipe_final_ativo': 'Wipe Final: Ativar Arrasto',
             'wipe_final_distancia': 'Wipe Final: Distância (mm)',
             'wipe_final_subida_z': 'Wipe Final: Subida em Z (mm)',
             'transicao_vaso_z_offset': 'Vasemode: Offset Z de Transição (mm)',
-            'transicao_vaso_fluxo': 'Vasemode: Fluxo de Transição (%)'
+            'transicao_vaso_fluxo': 'Vasemode: Fluxo de Transição (%)',
+            'mesa_x_min': 'Mesa: Limite Min X (mm)',
+            'mesa_x_max': 'Mesa: Limite Max X (mm)',
+            'mesa_y_min': 'Mesa: Limite Min Y (mm)',
+            'mesa_y_max': 'Mesa: Limite Max Y (mm)'
         }
         
         # Força o reload para garantir que lemos o estado mais recente
@@ -412,6 +470,41 @@ class PrintQueueApp(ctk.CTk):
                     entry = ctk.CTkEntry(scroll, textvariable=var, width=200)
                     entry.grid(row=row_idx, column=1, sticky="w", padx=10, pady=5)
                     row_idx += 1
+                    
+        # --- Campos para Start e End G-Code ---
+        lbl_sg = ctk.CTkLabel(scroll, text="Start G-Code Personalizado", font=ctk.CTkFont(weight="bold"))
+        lbl_sg.grid(row=row_idx, column=0, columnspan=2, pady=(15, 5))
+        row_idx += 1
+        
+        self.txt_start_gcode = ctk.CTkTextbox(scroll, height=100)
+        self.txt_start_gcode.grid(row=row_idx, column=0, columnspan=2, sticky="ew", padx=10, pady=5)
+        try:
+            import sys
+            import os
+            # Adiciona local module path to ensure import
+            fc_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fullcontrol")
+            if fc_path not in sys.path:
+                sys.path.insert(0, fc_path)
+            from fullcontrol.devices.community_minimal.settings import cliever_cl2pro
+            importlib.reload(cliever_cl2pro)
+            start_txt = cliever_cl2pro.default_initial_settings.get("start_gcode", "")
+            self.txt_start_gcode.insert("0.0", start_txt)
+        except Exception as e:
+            print("Erro ao carregar perfil da impressora", e)
+        row_idx += 1
+        
+        lbl_eg = ctk.CTkLabel(scroll, text="End G-Code Personalizado", font=ctk.CTkFont(weight="bold"))
+        lbl_eg.grid(row=row_idx, column=0, columnspan=2, pady=(15, 5))
+        row_idx += 1
+        
+        self.txt_end_gcode = ctk.CTkTextbox(scroll, height=100)
+        self.txt_end_gcode.grid(row=row_idx, column=0, columnspan=2, sticky="ew", padx=10, pady=5)
+        try:
+            from fullcontrol.devices.community_minimal.settings import cliever_cl2pro
+            end_txt = cliever_cl2pro.default_initial_settings.get("end_gcode", "")
+            self.txt_end_gcode.insert("0.0", end_txt)
+        except: pass
+        row_idx += 1
                     
         btn_salvar = ctk.CTkButton(self.config_window, text="Salvar Alterações", fg_color="blue", command=self.salvar_config_global)
         btn_salvar.pack(pady=10)
@@ -464,7 +557,25 @@ class PrintQueueApp(ctk.CTk):
             importlib.reload(cilindro_inclinado)
             importlib.reload(prisma_inclinado)
             
-            messagebox.showinfo("Sucesso", "Configurações Globais salvas e recarregadas com sucesso!")
+            # Salva o Start e End G-code diretamente no perfil da biblioteca FullControl
+            try:
+                import os
+                perfil_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fullcontrol", "devices", "community_minimal", "settings", "cliever_cl2pro.py")
+                start_txt = self.txt_start_gcode.get("0.0", "end").strip()
+                end_txt = self.txt_end_gcode.get("0.0", "end").strip()
+                
+                novo_perfil = f'''default_initial_settings = {{
+    "name": "Cliever CL2Pro",
+    "start_gcode": """{start_txt}""",
+    "end_gcode": """{end_txt}"""
+}}
+'''
+                with open(perfil_path, "w", encoding="utf-8") as f:
+                    f.write(novo_perfil)
+            except Exception as e:
+                messagebox.showerror("Erro", f"Erro ao salvar Gcode customizado no perfil do FullControl: {e}")
+            
+            messagebox.showinfo("Sucesso", "Configurações Globais e G-Code inicial/final salvos com sucesso!")
             self.config_window.destroy()
             
         except Exception as e:
@@ -489,6 +600,7 @@ class PrintQueueApp(ctk.CTk):
         importlib.reload(motor_mestre)
         importlib.reload(cilindro_inclinado)
         importlib.reload(prisma_inclinado)
+        importlib.reload(bridging_teste)
         
         # Chama o motor mestre!
         sucesso, mensagem = motor_mestre.gerar_gcode_sequencial(self.pecas_fila, nome_arquivo=nome_arquivo)

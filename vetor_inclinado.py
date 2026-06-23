@@ -70,14 +70,6 @@ zonas_camadas = [
     }
 ]
 
-# --- Velocidades de Movimentação ---
-velocidade_impressao = 600         # mm/min (10 mm/s)
-velocidade_travel = 3000           # mm/min (50 mm/s)
-
-# --- Controle Extra de Infill ---
-sobreposicao_infill = 1.0          # mm (Sobreposição do infill na parede interna do perímetro)
-
-
 # ==============================================================================
 # 2. PARSER DE ARQUIVOS VETORIAIS (SVG Nativo & DXF)
 # ==============================================================================
@@ -673,10 +665,20 @@ def gerar_espiral_helicoidal_vaso(poligono_camada, z_inicio, z_fim, start_x, sta
 # ==============================================================================
 # 5. CONSTRUÇÃO DO G-CODE EM CAMADAS INCLINADAS
 # ==============================================================================
+# --- Controle Extra de Infill ---
+sobreposicao_infill = 1.0          # mm (Sobreposição do infill na parede interna do perímetro)
+
+# --- Velocidades (mm/min) ---
+velocidade_impressao = config.get('velocidade_impressao', 20.0) * 60.0
+aceleracao_impressao = int(config.get('aceleracao_impressao', 500))
+velocidade_primeira_camada = config.get('velocidade_primeira_camada', 10.0) * 60.0
+aceleracao_primeira_camada = int(config.get('aceleracao_primeira_camada', 500))
+velocidade_travel = config.get('velocidade_travel', 50.0) * 60.0
 
 steps = []
-steps.append(fc.Printer(print_speed=velocidade_impressao, travel_speed=velocidade_travel))
-steps.append(fc.ManualGcode(text="M204 P500 T500"))
+steps.append(fc.Printer(print_speed=velocidade_primeira_camada, travel_speed=velocidade_travel))
+if aceleracao_primeira_camada > 0:
+    steps.append(fc.ManualGcode(text=f"M204 P{aceleracao_primeira_camada} T{aceleracao_primeira_camada}"))
 steps.append(fc.ExtrusionGeometry(area_model='rectangle', width=largura_extrusao, height=altura_camada))
 
 # Calcular o travel inicial para a primeira camada
@@ -756,6 +758,12 @@ else:
 ultimo_era_espiral = False
 # --- LOOP DE CAMADAS ---
 for camada in range(num_camadas):
+    if camada == 1:
+        steps.append(fc.ManualGcode(text=f"; --- RESTAURANDO VELOCIDADE NORMAL (CAMADA 2) ---"))
+        steps.append(fc.Printer(print_speed=velocidade_impressao, travel_speed=velocidade_travel))
+        if aceleracao_impressao > 0:
+            steps.append(fc.ManualGcode(text=f"M204 P{aceleracao_impressao} T{aceleracao_impressao}"))
+            
     z_atual = altura_camada + (camada * altura_camada)
     eh_par = (camada % 2 == 0)
     

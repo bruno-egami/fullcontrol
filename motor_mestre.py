@@ -5,6 +5,7 @@ import glob, os
 
 from cilindro_inclinado import gerar_passos_cilindro
 from prisma_inclinado import gerar_passos_prisma
+import bridging_teste
 from config_impressora import *
 import config_impressora
 
@@ -121,12 +122,11 @@ def gerar_gcode_sequencial(pecas_fila, nome_arquivo="sequencial_final"):
     altura_camada = float(configs_pecas[0].get('altura_camada', 1.0))
     
     master_steps.append(fc.Printer(print_speed=750, travel_speed=1500))
-    master_steps.append(fc.ManualGcode(text="M204 P500 T500"))
     master_steps.append(fc.ExtrusionGeometry(area_model='rectangle', width=largura_extrusao, height=altura_camada))
 
     for idx, cfg in enumerate(configs_pecas):
         master_steps.append(fc.ManualGcode(text=f"; ================================="))
-        master_steps.append(fc.ManualGcode(text=f"; INICIANDO PEÇA: {cfg['nome']}"))
+        master_steps.append(fc.ManualGcode(text=f"; --- INICIANDO PECA: {cfg['nome']} ---"))
         master_steps.append(fc.ManualGcode(text=f"; ================================="))
         
         # Z-Hop Dinâmico antes de mover para a nova peça
@@ -144,8 +144,10 @@ def gerar_gcode_sequencial(pecas_fila, nome_arquivo="sequencial_final"):
         # Injeta os passos do motor de geometria específico
         if cfg['tipo'] == 'cilindro':
             passos_peca = gerar_passos_cilindro(cfg)
-        else:
+        elif cfg['tipo'] == 'prisma':
             passos_peca = gerar_passos_prisma(cfg)
+        elif cfg['tipo'] == 'bridging':
+            passos_peca = bridging_teste.gerar_passos_bridging(cfg)
             
         master_steps.extend(passos_peca)
         
@@ -179,6 +181,9 @@ def gerar_gcode_sequencial(pecas_fila, nome_arquivo="sequencial_final"):
     em_perimetro = False
     em_infill = False
     
+    min_x, max_x = float('inf'), float('-inf')
+    min_y, max_y = float('inf'), float('-inf')
+    
     for linha in linhas:
         linha = linha.rstrip('\r\n')
         
@@ -195,25 +200,43 @@ def gerar_gcode_sequencial(pecas_fila, nome_arquivo="sequencial_final"):
         elif '; --- PERIMETRO END ---' in linha:
             em_perimetro = False
             if priming_ativo and priming_fim_perimetro and not em_espiral:
-                linhas_limpas.append(f"G1 E{priming_perimetro_fim_qtd:.5f} F{priming_perimetro_fim_vel} ; Retracao fim perimetro\n")
+                linhas_limpas.append(f"G1 E{priming_perimetro_fim_qtd:.5f} F{priming_perimetro_fim_vel * 60.0} ; Retracao fim perimetro\n")
         elif '; --- INFILL START ---' in linha: em_infill = True
         elif '; --- INFILL END ---' in linha:
             em_infill = False
             if priming_ativo and priming_fim_infill and not em_espiral:
-                linhas_limpas.append(f"G1 E{priming_infill_fim_qtd:.5f} F{priming_infill_fim_vel} ; Retracao fim infill\n")
+                linhas_limpas.append(f"G1 E{priming_infill_fim_qtd:.5f} F{priming_infill_fim_vel * 60.0} ; Retracao fim infill\n")
             
         if linha:
             is_travel = linha.strip().startswith('G0') and ('X' in linha or 'Y' in linha)
+            
+            # --- Check Limits ---
+            if linha.strip().startswith('G0 ') or linha.strip().startswith('G1 '):
+                partes = linha.split()
+                for p in partes:
+                    if p.startswith('X'):
+                        try:
+                            v = float(p[1:])
+                            if v < min_x: min_x = v
+                            if v > max_x: max_x = v
+                        except: pass
+                    elif p.startswith('Y'):
+                        try:
+                            v = float(p[1:])
+                            if v < min_y: min_y = v
+                            if v > max_y: max_y = v
+                        except: pass
+                        
             linhas_limpas.append(linha + '\n')
             
             if is_travel and priming_ativo and not em_espiral:
                 if primeiro_g0:
-                    linhas_limpas.append(f"G1 E{priming_inicial_qtd:.5f} F{priming_inicial_vel} ; Purga inicial para carregar o bico\n")
+                    linhas_limpas.append(f"G1 E{priming_inicial_qtd:.5f} F{priming_inicial_vel * 60.0} ; Purga inicial para carregar o bico\n")
                     primeiro_g0 = False
                 elif em_perimetro and priming_inicio_perimetro:
-                    linhas_limpas.append(f"G1 E{priming_perimetro_inicio_qtd:.5f} F{priming_perimetro_inicio_vel} ; Purga inicio perimetro\n")
+                    linhas_limpas.append(f"G1 E{priming_perimetro_inicio_qtd:.5f} F{priming_perimetro_inicio_vel * 60.0} ; Purga inicio perimetro\n")
                 elif em_infill and priming_inicio_infill:
-                    linhas_limpas.append(f"G1 E{priming_infill_inicio_qtd:.5f} F{priming_infill_inicio_vel} ; Purga inicio infill\n")
+                    linhas_limpas.append(f"G1 E{priming_infill_inicio_qtd:.5f} F{priming_infill_inicio_vel * 60.0} ; Purga inicio infill\n")
                     
     novo_nome = f"{nome_arquivo}.gcode"
     with open(novo_nome, 'w', encoding='utf-8') as f:
@@ -224,4 +247,20 @@ def gerar_gcode_sequencial(pecas_fila, nome_arquivo="sequencial_final"):
     except:
         pass
         
+    # --- Verificacao de Limites da Mesa ---
+    if hasattr(config_impressora, 'mesa_x_max'):
+        lim_x_max = config_impressora.mesa_x_max
+        lim_x_min = getattr(config_impressora, 'mesa_x_min', 0.0)
+        lim_y_max = getattr(config_impressora, 'mesa_y_max', 300.0)
+        lim_y_min = getattr(config_impressora, 'mesa_y_min', 0.0)
+        
+        # Verifica se obteve coordenadas validas
+        if max_x != float('-inf'):
+            if max_x > lim_x_max or min_x < lim_x_min or max_y > lim_y_max or min_y < lim_y_min:
+                msg = (f"ATENÇÃO: A peça ultrapassa os limites físicos da mesa!\n\n"
+                       f"Limites Permitidos: X [{lim_x_min} a {lim_x_max}], Y [{lim_y_min} a {lim_y_max}]\n"
+                       f"Área Utilizada: X [{min_x:.1f} a {max_x:.1f}], Y [{min_y:.1f} a {max_y:.1f}]\n\n"
+                       f"Verifique as posições X/Y ou os comprimentos das peças.")
+                return False, msg
+                
     return True, f"G-code Mestre gerado com sucesso!\nSalvo como: {novo_nome}\nTotal de peças: {len(configs_pecas)}"

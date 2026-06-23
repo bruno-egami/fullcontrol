@@ -81,6 +81,14 @@ Um otimizador de percurso universal e inteligente focado nos princípios do Full
 ### 6. Configuração Compartilhada da Impressora (`config_impressora.py`)
 Centraliza todas as definições físicas, de bico/extrusão, de priming independente por percurso, de transição de vaso e de wipe final em um único arquivo unificado de cabeçalho compartilhado.
 * **Única Fonte de Verdade (Single Source of Truth):** Elimina a redundância e duplicação de dados entre os diferentes scripts. Quando você ajusta o diâmetro do bico (`largura_extrusao`), a altura de camada base ou recalibra as velocidades e vazões em `config_impressora.py`, todos os 5 geradores paramétricos lêem de forma sincronizada e geram o G-code perfeitamente coerente de forma automática!
+* **Controle Granular de Cinética:** Permite definir isoladamente as velocidades (`mm/s`) e acelerações (`mm/s²`) para a primeira camada (maior aderência) e para o cruzeiro de impressão, assim como a velocidade de viagens (travel).
+* **Limites Geométricos (Bounding Box):** Parâmetros nativos de `mesa_x_min`, `mesa_x_max`, `mesa_y_min` e `mesa_y_max` para barrar a geração de G-codes que fujam da mesa mecânica.
+
+### 7. Interface Gráfica Mestra (`gui.py`) e Compilador Sequencial (`motor_mestre.py`)
+Uma GUI completa construída em CustomTkinter para gerenciar a fila de impressão de forma visual.
+* **Fila de Impressão:** Adicione múltiplos cilindros, prismas ou vetores na mesma mesa. Utilize botões de ordenar (⬆/⬇) para mudar a prioridade e ordem cronológica da extrusão de cada peça.
+* **Verificação de Limites:** O Motor Mestre checa matematicamente toda a bounding box real do G-code gerado. Se qualquer extremidade da base ultrapassar os limites físicos da impressora, a compilação é imediatamente abortada com erro na tela.
+* **Customização Nativa do Perfil:** Um painel de *Configurações Globais* permite editar todos os valores de forma fluida. Lá, os campos de **Start G-Code e End G-Code Personalizado** injetam seu script DIW/Purga *diretamente* no perfil nativo da biblioteca do FullControl (`cliever_cl2pro.py`), garantindo que não haja códigos duplicados ou injetados por fora.
 
 ---
 
@@ -129,7 +137,8 @@ pip install ezdxf
    # ou
    python cilindro_inclinado.py
    ```
-5. Pronto! O G-code gerado no diretório atual poderá ser aberto no visualizador do PrusaSlicer para conferência das paredes inclinadas e espirais concêntricas contínuas.
+5. **Alternativa em Interface Gráfica:** Basta rodar `python gui.py`, adicionar sua peça na lista e gerar tudo em um clique!
+6. Pronto! O G-code gerado no diretório atual poderá ser aberto no visualizador do PrusaSlicer para conferência das paredes inclinadas e espirais concêntricas contínuas.
 
 ---
 
