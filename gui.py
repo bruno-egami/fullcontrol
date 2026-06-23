@@ -341,9 +341,11 @@ class PrintQueueApp(ctk.CTk):
                 add_input("Fluxo Infill (%):", f"zona_{i}_fluxo_infill", zona.get('fluxo_infill', 100.0))
                 add_combobox("Modo Espiral:", f"zona_{i}_espiral", str(zona.get('espiral', 'False')), ["True", "False"])
             
-            lbl_sep4 = ctk.CTkLabel(self.frame_inputs, text="--- Gyroid Específicos ---", text_color="gray")
+            lbl_sep4 = ctk.CTkLabel(self.frame_inputs, text="--- Infill Específicos ---", text_color="gray")
             lbl_sep4.grid(row=row_idx, column=0, columnspan=2, pady=(15, 5)); row_idx += 1
             
+            add_input("Ângulo Infill Base (º):", "angulo_infill_base", self.peca_selecionada.config.get('angulo_infill_base', 45.0))
+            add_input("Sobreposição Infill (mm):", "sobreposicao_infill", self.peca_selecionada.config.get('sobreposicao_infill', 0.5))
             add_input("Amplitude Gyroid:", "amplitude_gyroid", self.peca_selecionada.config.get('amplitude_gyroid', 2.0))
             add_input("Comp. Onda Gyroid:", "comprimento_onda_gyroid", self.peca_selecionada.config.get('comprimento_onda_gyroid', 15.0))
             
