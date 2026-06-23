@@ -6,6 +6,7 @@ import glob, os
 from cilindro_inclinado import gerar_passos_cilindro
 from prisma_inclinado import gerar_passos_prisma
 import bridging_teste
+import vetor_inclinado
 from config_impressora import *
 import config_impressora
 
@@ -148,6 +149,8 @@ def gerar_gcode_sequencial(pecas_fila, nome_arquivo="sequencial_final"):
             passos_peca = gerar_passos_prisma(cfg)
         elif cfg['tipo'] == 'bridging':
             passos_peca = bridging_teste.gerar_passos_bridging(cfg)
+        elif cfg['tipo'] == 'vetor':
+            passos_peca = vetor_inclinado.gerar_passos_vetor(cfg)
             
         master_steps.extend(passos_peca)
         

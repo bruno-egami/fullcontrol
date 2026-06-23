@@ -55,6 +55,7 @@ Atua como ponte inteligente entre fatiadores tradicionais (PrusaSlicer) e o Full
 
 ### 4. Gerador Vetorial Inclinado Avançado (`vetor_inclinado.py`)
 Nosso mais robusto script paramétrico tridimensional capaz de ler arquivos vetoriais externos para gerar peças tridimensionais complexas e decorativas em Vase Mode e base sólida maciça.
+Este script é **nativamente integrado à Interface Gráfica (GUI)**, o que permite combinar geometrias vetoriais com prismas e cilindros sequenciais com controle absoluto na tela.
 
 **Funcionalidades Principais:**
 * **Parser SVG Nativo (Python puro):** Lê o XML do SVG, processando caminhos `<path d="..." />` Bézier Cúbicas/Quadráticas, polilinhas e primitivos em aproximações poligonais suaves baseadas em `resolucao_mm`.
@@ -86,7 +87,8 @@ Centraliza todas as definições físicas, de bico/extrusão, de priming indepen
 
 ### 7. Interface Gráfica Mestra (`gui.py`) e Compilador Sequencial (`motor_mestre.py`)
 Uma GUI completa construída em CustomTkinter para gerenciar a fila de impressão de forma visual.
-* **Fila de Impressão:** Adicione múltiplos cilindros, prismas ou vetores na mesma mesa. Utilize botões de ordenar (⬆/⬇) para mudar a prioridade e ordem cronológica da extrusão de cada peça.
+* **Fila de Impressão Multi-peça:** Adicione múltiplos cilindros, prismas, geometrias de bridging ou **arquivos vetoriais externos (DXF/SVG)** na mesma mesa. Utilize botões de ordenar (⬆/⬇) para mudar a prioridade e ordem cronológica da extrusão de cada peça na impressão sequencial.
+* **Seletor de Arquivos Embutido:** Ao incluir uma peça Vetor, o botão "Procurar..." abre diretamente o explorador de arquivos do Windows para você arrastar o seu SVG/DXF desejado para dentro da fila.
 * **Verificação de Limites:** O Motor Mestre checa matematicamente toda a bounding box real do G-code gerado. Se qualquer extremidade da base ultrapassar os limites físicos da impressora, a compilação é imediatamente abortada com erro na tela.
 * **Customização Nativa do Perfil:** Um painel de *Configurações Globais* permite editar todos os valores de forma fluida. Lá, os campos de **Start G-Code e End G-Code Personalizado** injetam seu script DIW/Purga *diretamente* no perfil nativo da biblioteca do FullControl (`cliever_cl2pro.py`), garantindo que não haja códigos duplicados ou injetados por fora.
 
@@ -153,11 +155,14 @@ Este script lê um vetor SVG (nativo) ou DXF (via ezdxf) contendo uma geometria 
    - `MODO_LINHA_UNICA = True` (Ativa para trajetórias de traço simples auto-intersectantes como o nó celta).
    - `NUM_CAMADAS_BASE_MACICA = 2` (Gera base maciça estanque baseada na silhueta do nó celta).
    - Ajuste `angulo_parede` para a inclinação desejada.
-4. Execute o script com a venv ativa:
-   ```bash
-   python vetor_inclinado.py
-   ```
-5. A peça será gerada como um filete contínuo e ininterrupto com a base fechada maciça de forma ultra robusta.
+4. **Via Interface Gráfica (Recomendado):**
+   - Execute `python gui.py`.
+   - Clique em `[+ Vetor]` na aba esquerda.
+   - Utilize o botão `Procurar` na lateral direita para selecionar o seu `SVG/DXF`.
+   - Defina os parâmetros de Modo Linha Única e Camadas Maciças visualmente e clique em **Gerar G-Code Mestre**.
+   
+5. **Via Terminal (Modo Standalone):**
+   - Execute `python vetor_inclinado.py` no terminal para testar com configurações de demonstração inseridas no código fonte. A peça será gerada como um filete contínuo e ininterrupto com a base fechada maciça de forma ultra robusta.
 
 ---
 

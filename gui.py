@@ -106,6 +106,9 @@ class PrintQueueApp(ctk.CTk):
         
         self.btn_add_bridging = ctk.CTkButton(self.frame_botoes_add, text="+ Bridging", width=65, command=lambda: self.adicionar_peca('bridging'))
         self.btn_add_bridging.pack(side="left", padx=2)
+        
+        self.btn_add_vetor = ctk.CTkButton(self.frame_botoes_add, text="+ Vetor", width=65, command=lambda: self.adicionar_peca('vetor'))
+        self.btn_add_vetor.pack(side="left", padx=2)
 
         # Lista de peças (Scrollable)
         self.lista_pecas_frame = ctk.CTkScrollableFrame(self.left_panel)
@@ -223,11 +226,15 @@ class PrintQueueApp(ctk.CTk):
             for key, var in self.inputs_vars.items():
                 if key != 'nome':
                     val = var.get()
-                    # Tenta converter para float se for número, senão mantém string
                     try:
                         val_num = float(val)
                     except ValueError:
-                        val_num = val
+                        if val == "True":
+                            val_num = True
+                        elif val == "False":
+                            val_num = False
+                        else:
+                            val_num = val
                         
                     if key.startswith('zona_'):
                         parts = key.split('_', 2)
@@ -281,6 +288,33 @@ class PrintQueueApp(ctk.CTk):
             combo.grid(row=row_idx, column=1, padx=10, pady=10, sticky="w")
             
             row_idx += 1
+            
+        def add_file_input(label_text, key_name, default_val):
+            nonlocal row_idx
+            lbl = ctk.CTkLabel(self.frame_inputs, text=label_text)
+            lbl.grid(row=row_idx, column=0, padx=10, pady=10, sticky="e")
+            
+            var = ctk.StringVar(value=str(default_val))
+            self.inputs_vars[key_name] = var
+            
+            frame_file = ctk.CTkFrame(self.frame_inputs, fg_color="transparent")
+            frame_file.grid(row=row_idx, column=1, padx=10, pady=10, sticky="w")
+            
+            entry = ctk.CTkEntry(frame_file, textvariable=var, width=140)
+            entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+            
+            def open_dialog():
+                filepath = ctk.filedialog.askopenfilename(
+                    title="Selecione o Vetor",
+                    filetypes=[("Arquivos Vetoriais", "*.svg *.dxf"), ("Todos os Arquivos", "*.*")]
+                )
+                if filepath:
+                    var.set(filepath)
+                    
+            btn = ctk.CTkButton(frame_file, text="Procurar", width=55, command=open_dialog)
+            btn.pack(side="left")
+            
+            row_idx += 1
 
         add_input("Nome da Peça:", "nome", self.peca_selecionada.nome)
         
@@ -311,8 +345,13 @@ class PrintQueueApp(ctk.CTk):
             add_input("Velocidade Base (mm/s):", "velocidade_base", self.peca_selecionada.config.get('velocidade_base', 20.0))
             add_input("Vel. Ponte (mm/s):", "velocidade_ponte", self.peca_selecionada.config.get('velocidade_ponte', 10.0))
             add_input("Pausa na Âncora (ms):", "ancora_pausa_ms", self.peca_selecionada.config.get('ancora_pausa_ms', 500))
+        elif self.peca_selecionada.tipo == 'vetor':
+            add_file_input("Arquivo Vetor (SVG/DXF):", "vetor_arquivo", self.peca_selecionada.config.get('vetor_arquivo', 'no-celta.dxf'))
+            add_combobox("Modo Linha Única:", "modo_linha_unica", str(self.peca_selecionada.config.get('modo_linha_unica', 'True')), ["True", "False"])
+            add_input("Num. Camadas Base Maciça:", "num_camadas_base_macica", self.peca_selecionada.config.get('num_camadas_base_macica', 4))
+            add_input("Largura X Desejada (mm):", "largura_x", self.peca_selecionada.config.get('largura_x', 100.0))
 
-        if self.peca_selecionada.tipo in ['cilindro', 'prisma']:
+        if self.peca_selecionada.tipo in ['cilindro', 'prisma', 'vetor']:
             # Separador - Zonas de Camada
             frame_zonas_header = ctk.CTkFrame(self.frame_inputs, fg_color="transparent")
             frame_zonas_header.grid(row=row_idx, column=0, columnspan=2, pady=(15, 5), sticky="ew")
