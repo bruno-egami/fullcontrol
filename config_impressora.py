@@ -4,7 +4,7 @@
 
 # --- Parâmetros Físicos da Extrusão ---
 largura_extrusao = 3.0  # mm (Diâmetro do bico / largura do filete impresso)
-altura_camada = 1.0  # mm (Altura de cada camada padrão)
+altura_camada = 2.0  # mm (Altura de cada camada padrão)
 
 # --- Parâmetros de Priming/Purga (Clay DIW) ---
 priming_ativo = True  # Master switch para habilitar purga/priming automático
@@ -39,8 +39,8 @@ wipe_final_distancia = 6.0  # mm (distância de retorno sobre o próprio filamen
 wipe_final_subida_z = 0.5  # mm (elevação em Z durante o wipe para descolamento suave)
 
 # --- Parâmetros de Transição para o Modo Vaso ---
-transicao_vaso_z_offset = 0.5  # mm (Espaço vertical extra no início do vasemode para evitar esmagamento)
-transicao_vaso_fluxo = 85.0  # % (Fluxo de transição reduzido para a primeira camada do vasemode)
+transicao_vaso_z_offset = 1.0  # mm (Espaço vertical extra no início do vasemode para evitar esmagamento)
+transicao_vaso_fluxo = 150.0  # % (Fluxo de transição reduzido para a primeira camada do vasemode)
 
 # --- Limites da Mesa (Bed Limits) ---
 mesa_x_min = 0.0
@@ -56,5 +56,6 @@ velocidade_primeira_camada = 7.5
 aceleracao_primeira_camada = 100
 velocidade_impressao = 7.5
 aceleracao_impressao = 100
+aceleracao_z = 50
 velocidade_travel = 50.0
 alternar_ordem_camadas = False

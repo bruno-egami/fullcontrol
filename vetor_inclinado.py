@@ -673,7 +673,7 @@ def gerar_passos_vetor(config):
     steps = []
     steps.append(fc.Printer(print_speed=velocidade_primeira_camada, travel_speed=velocidade_travel))
     if aceleracao_primeira_camada > 0:
-        steps.append(fc.ManualGcode(text=f"M204 P{aceleracao_primeira_camada} T{aceleracao_primeira_camada}"))
+        steps.append(fc.ManualGcode(text=f"M201 X{aceleracao_primeira_camada} Y{aceleracao_primeira_camada}"))
     steps.append(fc.ExtrusionGeometry(area_model='rectangle', width=largura_extrusao, height=altura_camada))
 
     # Calcular o travel inicial para a primeira camada
@@ -757,7 +757,7 @@ def gerar_passos_vetor(config):
             steps.append(fc.ManualGcode(text=f"; --- RESTAURANDO VELOCIDADE NORMAL (CAMADA 2) ---"))
             steps.append(fc.Printer(print_speed=velocidade_impressao, travel_speed=velocidade_travel))
             if aceleracao_impressao > 0:
-                steps.append(fc.ManualGcode(text=f"M204 P{aceleracao_impressao} T{aceleracao_impressao}"))
+                steps.append(fc.ManualGcode(text=f"M201 X{aceleracao_impressao} Y{aceleracao_impressao}"))
 
         z_atual = altura_camada + (camada * altura_camada)
         eh_par = (camada % 2 == 0)

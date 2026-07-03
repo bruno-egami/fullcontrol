@@ -553,6 +553,7 @@ class PrintQueueApp(ctk.CTk):
             'aceleracao_primeira_camada': 'Cinemática: Acc. Primeira Camada (mm/s²)',
             'velocidade_impressao': 'Cinemática: Velocidade Impressão (mm/s)',
             'aceleracao_impressao': 'Cinemática: Aceleração Impressão (mm/s²)',
+            'aceleracao_z': 'Cinemática: Aceleração Eixo Z (mm/s²)',
             'velocidade_travel': 'Cinemática: Velocidade Travel (mm/s)',
             'alternar_ordem_camadas': 'Especial: Alternar Sentido Z'
         }

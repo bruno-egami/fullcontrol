@@ -127,6 +127,10 @@ def gerar_gcode_sequencial(pecas_fila, nome_arquivo="sequencial_final"):
     
     master_steps.append(fc.Printer(print_speed=velocidade_primeira_camada_inicial, travel_speed=velocidade_travel_inicial))
     master_steps.append(fc.ExtrusionGeometry(area_model='rectangle', width=largura_extrusao, height=altura_camada))
+    
+    aceleracao_z = int(configs_pecas[0].get('aceleracao_z', config_impressora.aceleracao_z))
+    if aceleracao_z > 0:
+        master_steps.append(fc.ManualGcode(text=f"M201 Z{aceleracao_z}"))
 
     for idx, cfg in enumerate(configs_pecas):
         master_steps.append(fc.ManualGcode(text=f"; ================================="))

@@ -40,7 +40,9 @@ def gerar_passos_prisma(config):
     wipe_final_subida_z = config.get('wipe_final_subida_z', 0.5)
 
     velocidade_impressao = config.get('velocidade_impressao', config_impressora.velocidade_impressao) * 60.0
+    aceleracao_impressao = int(config.get('aceleracao_impressao', config_impressora.aceleracao_impressao))
     velocidade_primeira_camada = config.get('velocidade_primeira_camada', config_impressora.velocidade_primeira_camada) * 60.0
+    aceleracao_primeira_camada = int(config.get('aceleracao_primeira_camada', config_impressora.aceleracao_primeira_camada))
     velocidade_travel = config.get('velocidade_travel', config_impressora.velocidade_travel) * 60.0
 
     steps = []
@@ -410,6 +412,8 @@ def gerar_passos_prisma(config):
     # ==============================================================================
 
     steps.append(fc.Printer(print_speed=velocidade_primeira_camada, travel_speed=velocidade_travel))
+    if aceleracao_primeira_camada > 0:
+        steps.append(fc.ManualGcode(text=f"M201 X{aceleracao_primeira_camada} Y{aceleracao_primeira_camada}"))
     steps.append(fc.Extruder(on=False))
     steps.append(fc.Point(x=x_p_min_outer, y=y_p_max_outer, z=altura_camada))
     steps.append(fc.Extruder(on=True))
@@ -419,6 +423,8 @@ def gerar_passos_prisma(config):
         if camada == 1:
             steps.append(fc.ManualGcode(text=f"; --- RESTAURANDO VELOCIDADE NORMAL (CAMADA 2) ---"))
             steps.append(fc.Printer(print_speed=velocidade_impressao, travel_speed=velocidade_travel))
+            if aceleracao_impressao > 0:
+                steps.append(fc.ManualGcode(text=f"M201 X{aceleracao_impressao} Y{aceleracao_impressao}"))
 
         z_atual = altura_camada + (camada * altura_camada)
         eh_par = (camada % 2 == 0)
