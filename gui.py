@@ -21,40 +21,29 @@ class Piece:
         
         self.tipo = tipo # 'cilindro' ou 'prisma'
         self.nome = f"{tipo.capitalize()} {self.id}"
+        import config_impressora
+        import importlib
+        importlib.reload(config_impressora)
+        
+        centro_x = (config_impressora.mesa_x_min + config_impressora.mesa_x_max) / 2.0
+        centro_y = (config_impressora.mesa_y_min + config_impressora.mesa_y_max) / 2.0
         
         # Parâmetros padrão base
         self.config = {
-            'x_centro': 150.0,
-            'y_centro': 150.0,
+            'x_centro': centro_x,
+            'y_centro': centro_y,
             'z_max_desejado': 10.0,
             'angulo_parede': 90.0,
-            'largura_extrusao': 3.0,
-            'altura_camada': 1.0,
             'zonas_camadas': [{
                 'qtd_camadas': 999,
                 'num_perimetros': 1,
                 'infill_percent': 100.0,
-                'infill_pattern': 'concentric',
-                'fluxo_perimetro': 100.0,
-                'fluxo_infill': 100.0,
-                'espiral': 'False'
+                'infill_pattern': 'concentric'
             }],
-            'resolucao_mm': 1.0,
-            'alternar_ordem_camadas': 'True',
             'angulo_infill_base': 45.0,
             'sobreposicao_infill': 0.5,
             'amplitude_gyroid': 2.0,
-            'comprimento_onda_gyroid': 15.0,
-            'transicao_vaso_z_offset': 0.5,
-            'transicao_vaso_fluxo': 85.0,
-            'wipe_final_ativo': 'True',
-            'wipe_final_distancia': 6.0,
-            'wipe_final_subida_z': 0.5,
-            'velocidade_impressao': 20.0,
-            'aceleracao_impressao': 500,
-            'velocidade_primeira_camada': 10.0,
-            'aceleracao_primeira_camada': 500,
-            'velocidade_travel': 50.0
+            'comprimento_onda_gyroid': 15.0
         }
         
         if tipo == 'cilindro':
@@ -71,6 +60,25 @@ class Piece:
             self.config['velocidade_base'] = 20.0
             self.config['velocidade_ponte'] = 10.0
             self.config['ancora_pausa_ms'] = 500
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'tipo': self.tipo,
+            'nome': self.nome,
+            'config': self.config
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        p = cls(data['tipo'])
+        p.id = data['id']
+        p.nome = data['nome']
+        p.config = data['config']
+        # Update class counter to avoid future id collisions
+        if p.id >= cls._id_counter:
+            cls._id_counter = p.id + 1
+        return p
 
 class PrintQueueApp(ctk.CTk):
     def __init__(self):
@@ -89,14 +97,24 @@ class PrintQueueApp(ctk.CTk):
         # PAINEL ESQUERDO (Fila de Impressão)
         self.left_panel = ctk.CTkFrame(self, width=250, corner_radius=0)
         self.left_panel.grid(row=0, column=0, sticky="nsew")
-        self.left_panel.grid_rowconfigure(2, weight=1)
+        self.left_panel.grid_rowconfigure(3, weight=1)
+        
+        # Botões de Sessão
+        self.frame_sessao = ctk.CTkFrame(self.left_panel, fg_color="transparent")
+        self.frame_sessao.grid(row=0, column=0, padx=10, pady=(15, 0), sticky="ew")
+        
+        self.btn_salvar_sessao = ctk.CTkButton(self.frame_sessao, text="Salvar Sessão", width=105, fg_color="#1E3A8A", hover_color="#1E40AF", command=self.salvar_sessao)
+        self.btn_salvar_sessao.pack(side="left", padx=2)
+        
+        self.btn_carregar_sessao = ctk.CTkButton(self.frame_sessao, text="Carregar Sessão", width=105, fg_color="#1E3A8A", hover_color="#1E40AF", command=self.carregar_sessao)
+        self.btn_carregar_sessao.pack(side="right", padx=2)
         
         self.lbl_fila = ctk.CTkLabel(self.left_panel, text="Fila de Impressão", font=ctk.CTkFont(size=18, weight="bold"))
-        self.lbl_fila.grid(row=0, column=0, padx=20, pady=(20, 10))
+        self.lbl_fila.grid(row=1, column=0, padx=20, pady=(15, 10))
 
         # Botões para adicionar
         self.frame_botoes_add = ctk.CTkFrame(self.left_panel, fg_color="transparent")
-        self.frame_botoes_add.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
+        self.frame_botoes_add.grid(row=2, column=0, padx=10, pady=5, sticky="ew")
         
         self.btn_add_cilindro = ctk.CTkButton(self.frame_botoes_add, text="+ Cilindro", width=65, command=lambda: self.adicionar_peca('cilindro'))
         self.btn_add_cilindro.pack(side="left", padx=2)
@@ -112,23 +130,25 @@ class PrintQueueApp(ctk.CTk):
 
         # Lista de peças (Scrollable)
         self.lista_pecas_frame = ctk.CTkScrollableFrame(self.left_panel)
-        self.lista_pecas_frame.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
+        self.lista_pecas_frame.grid(row=3, column=0, padx=10, pady=10, sticky="nsew")
         
         # Nome do Arquivo
         self.frame_arquivo = ctk.CTkFrame(self.left_panel, fg_color="transparent")
-        self.frame_arquivo.grid(row=3, column=0, padx=20, pady=(10, 0), sticky="ew")
-        self.lbl_arquivo = ctk.CTkLabel(self.frame_arquivo, text="Nome do Arquivo:")
-        self.lbl_arquivo.pack(anchor="w")
-        self.entry_nome_arquivo = ctk.CTkEntry(self.frame_arquivo, placeholder_text="Ex: pecas_finais")
-        self.entry_nome_arquivo.insert(0, "gcode_final_sequencial")
-        self.entry_nome_arquivo.pack(fill="x")
-
+        self.frame_arquivo.grid(row=4, column=0, padx=20, pady=(10, 0), sticky="ew")
+        self.lbl_filename = ctk.CTkLabel(self.frame_arquivo, text="Nome do Arquivo G-code:")
+        self.lbl_filename.pack(pady=(15,0))
+        self.txt_nome_arquivo = ctk.CTkEntry(self.frame_arquivo, width=200, placeholder_text="Digite o nome do G-code")
+        self.txt_nome_arquivo.pack(pady=(0,10))
+        
         # Botões de Ação Final
         self.frame_acoes = ctk.CTkFrame(self.left_panel, fg_color="transparent")
-        self.frame_acoes.grid(row=4, column=0, padx=20, pady=20, sticky="ew")
+        self.frame_acoes.grid(row=5, column=0, padx=20, pady=20, sticky="ew")
         
-        self.btn_config_global = ctk.CTkButton(self.frame_acoes, text="Configurações Globais", fg_color="gray40", hover_color="gray30", height=30, command=self.abrir_config_global)
-        self.btn_config_global.pack(fill="x", pady=(0, 10))
+        self.btn_config_global = ctk.CTkButton(self.frame_acoes, text="Configurações Globais de Impressão", fg_color="gray40", hover_color="gray30", height=30, command=self.abrir_config_global)
+        self.btn_config_global.pack(fill="x", pady=5)
+        
+        self.btn_duplicar = ctk.CTkButton(self.frame_acoes, text="Duplicar Peça Selecionada", fg_color="goldenrod", hover_color="darkgoldenrod", height=30, command=self.duplicar_peca_ui)
+        self.btn_duplicar.pack(fill="x", pady=(15,5))
 
         self.btn_gerar_gcode = ctk.CTkButton(self.frame_acoes, text="Gerar G-Code Mestre", fg_color="green", hover_color="darkgreen", height=40, font=ctk.CTkFont(weight="bold"), command=self.gerar_gcode)
         self.btn_gerar_gcode.pack(fill="x")
@@ -148,6 +168,59 @@ class PrintQueueApp(ctk.CTk):
         self.inputs_vars = {} # Dicionário para armazenar as variáveis do Tkinter vinculadas aos inputs
         self.atualizar_lista_ui()
 
+    def salvar_sessao(self):
+        import json
+        import os
+        
+        # Garante que as edições atuais do painel direito sejam salvas no objeto antes de exportar
+        self.salvar_inputs_na_peca_selecionada()
+        
+        filepath = ctk.filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("Arquivos de Sessão JSON", "*.json")],
+            title="Salvar Sessão da Fila de Impressão"
+        )
+        if not filepath:
+            return
+            
+        dados = {
+            'nome_gcode': self.txt_nome_arquivo.get(),
+            'fila': [p.to_dict() for p in self.pecas_fila]
+        }
+        
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(dados, f, indent=4)
+            messagebox.showinfo("Sucesso", "Sessão salva com sucesso!")
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao salvar a sessão:\n{e}")
+
+    def carregar_sessao(self):
+        import json
+        
+        filepath = ctk.filedialog.askopenfilename(
+            filetypes=[("Arquivos de Sessão JSON", "*.json")],
+            title="Carregar Sessão da Fila de Impressão"
+        )
+        if not filepath:
+            return
+            
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                dados = json.load(f)
+                
+            self.txt_nome_arquivo.delete(0, 'end')
+            self.txt_nome_arquivo.insert(0, dados.get('nome_gcode', ''))
+            
+            self.pecas_fila = [Piece.from_dict(d) for d in dados.get('fila', [])]
+            self.peca_selecionada = None
+            self.limpar_painel_direito()
+            self.atualizar_lista_ui()
+            
+            messagebox.showinfo("Sucesso", "Sessão carregada com sucesso!")
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao carregar a sessão:\n{e}")
+
     def adicionar_peca(self, tipo):
         nova_peca = Piece(tipo)
         self.pecas_fila.append(nova_peca)
@@ -159,6 +232,19 @@ class PrintQueueApp(ctk.CTk):
         if self.peca_selecionada == peca:
             self.peca_selecionada = None
             self.limpar_painel_direito()
+        self.atualizar_lista_ui()
+
+    def duplicar_peca_ui(self):
+        if not self.peca_selecionada:
+            return
+        
+        import copy
+        nova = copy.deepcopy(self.peca_selecionada)
+        nova.id = Piece._id_counter
+        Piece._id_counter += 1
+        nova.nome = nova.nome.split('(')[0].strip() + f" (Cópia {nova.id})"
+        self.pecas_fila.append(nova)
+        self.selecionar_peca(nova)
         self.atualizar_lista_ui()
 
     def mover_peca_cima(self, peca):
@@ -388,36 +474,6 @@ class PrintQueueApp(ctk.CTk):
             add_input("Amplitude Gyroid:", "amplitude_gyroid", self.peca_selecionada.config.get('amplitude_gyroid', 2.0))
             add_input("Comp. Onda Gyroid:", "comprimento_onda_gyroid", self.peca_selecionada.config.get('comprimento_onda_gyroid', 15.0))
             
-            lbl_sep5 = ctk.CTkLabel(self.frame_inputs, text="--- Extrusão e Fluxo ---", text_color="gray")
-            lbl_sep5.grid(row=row_idx, column=0, columnspan=2, pady=(15, 5)); row_idx += 1
-            
-            add_input("Resolução Curvas (mm):", "resolucao_mm", self.peca_selecionada.config.get('resolucao_mm', 1.0))
-            add_input("Fluxo Perímetro (%):", "fluxo_perimetro", self.peca_selecionada.config.get('fluxo_perimetro', 100.0))
-            add_input("Fluxo Infill (%):", "fluxo_infill", self.peca_selecionada.config.get('fluxo_infill', 100.0))
-            
-            lbl_sep_vel = ctk.CTkLabel(self.frame_inputs, text="--- Velocidades e Aceleração ---", text_color="gray")
-            lbl_sep_vel.grid(row=row_idx, column=0, columnspan=2, pady=(15, 5)); row_idx += 1
-            
-            add_input("Vel. Primeira Camada (mm/s):", "velocidade_primeira_camada", self.peca_selecionada.config.get('velocidade_primeira_camada', 10.0))
-            add_input("Acc. Primeira Camada (mm/s²):", "aceleracao_primeira_camada", self.peca_selecionada.config.get('aceleracao_primeira_camada', 500))
-            add_input("Velocidade Impressão (mm/s):", "velocidade_impressao", self.peca_selecionada.config.get('velocidade_impressao', 20.0))
-            add_input("Aceleração Impressão (mm/s²):", "aceleracao_impressao", self.peca_selecionada.config.get('aceleracao_impressao', 500))
-            add_input("Velocidade Travel (mm/s):", "velocidade_travel", self.peca_selecionada.config.get('velocidade_travel', 50.0))
-            
-            lbl_sep6 = ctk.CTkLabel(self.frame_inputs, text="--- Especiais ---", text_color="gray")
-            lbl_sep6.grid(row=row_idx, column=0, columnspan=2, pady=(15, 5)); row_idx += 1
-            
-            add_input("Vasemode Offset Z (mm):", "transicao_vaso_z_offset", self.peca_selecionada.config.get('transicao_vaso_z_offset', 0.5))
-            add_input("Vasemode Fluxo (%):", "transicao_vaso_fluxo", self.peca_selecionada.config.get('transicao_vaso_fluxo', 85.0))
-            add_combobox("Alternar Ordem Camadas:", "alternar_ordem_camadas", self.peca_selecionada.config.get('alternar_ordem_camadas', 'True'), ["True", "False"])
-        
-        lbl_sep7 = ctk.CTkLabel(self.frame_inputs, text="--- Wipe Final ---", text_color="gray")
-        lbl_sep7.grid(row=row_idx, column=0, columnspan=2, pady=(15, 5)); row_idx += 1
-        
-        add_combobox("Ativar Wipe Final:", "wipe_final_ativo", self.peca_selecionada.config.get('wipe_final_ativo', 'True'), ["True", "False"])
-        add_input("Distância do Wipe (mm):", "wipe_final_distancia", self.peca_selecionada.config.get('wipe_final_distancia', 6.0))
-        add_input("Subida Z no Wipe (mm):", "wipe_final_subida_z", self.peca_selecionada.config.get('wipe_final_subida_z', 0.5))
-
     def add_zona_ui(self):
         self.salvar_inputs_na_peca_selecionada()
         zonas = self.peca_selecionada.config.get('zonas_camadas', [])
@@ -489,7 +545,16 @@ class PrintQueueApp(ctk.CTk):
             'mesa_x_min': 'Mesa: Limite Min X (mm)',
             'mesa_x_max': 'Mesa: Limite Max X (mm)',
             'mesa_y_min': 'Mesa: Limite Min Y (mm)',
-            'mesa_y_max': 'Mesa: Limite Max Y (mm)'
+            'mesa_y_max': 'Mesa: Limite Max Y (mm)',
+            'resolucao_mm': 'Cinemática: Resolução Curvas (mm)',
+            'fluxo_perimetro': 'Fluxo: Perímetro (%)',
+            'fluxo_infill': 'Fluxo: Infill (%)',
+            'velocidade_primeira_camada': 'Cinemática: Vel. Primeira Camada (mm/s)',
+            'aceleracao_primeira_camada': 'Cinemática: Acc. Primeira Camada (mm/s²)',
+            'velocidade_impressao': 'Cinemática: Velocidade Impressão (mm/s)',
+            'aceleracao_impressao': 'Cinemática: Aceleração Impressão (mm/s²)',
+            'velocidade_travel': 'Cinemática: Velocidade Travel (mm/s)',
+            'alternar_ordem_camadas': 'Especial: Alternar Sentido Z'
         }
         
         # Força o reload para garantir que lemos o estado mais recente
@@ -630,11 +695,21 @@ class PrintQueueApp(ctk.CTk):
             messagebox.showwarning("Fila Vazia", "Adicione pelo menos uma peça à fila antes de gerar o G-Code.")
             return
             
-        print("Iniciando geração sequencial de peças...")
-        
-        nome_arquivo = self.entry_nome_arquivo.get().strip()
+        import os
+        nome_arquivo = self.txt_nome_arquivo.get().strip()
         if not nome_arquivo:
-            nome_arquivo = "gcode_final_sequencial"
+            messagebox.showerror("Erro", "O nome do arquivo G-code não pode estar em branco.")
+            return
+            
+        if not nome_arquivo.endswith('.gcode'):
+            nome_arquivo += '.gcode'
+            
+        # Garante que salva na pasta gcode
+        gcode_dir = "gcode"
+        if not os.path.exists(gcode_dir):
+            os.makedirs(gcode_dir)
+            
+        caminho_completo = os.path.join(gcode_dir, nome_arquivo)
             
         # Garante que os módulos tenham a config mais atual antes de rodar
         importlib.reload(config_impressora)
@@ -644,12 +719,15 @@ class PrintQueueApp(ctk.CTk):
         importlib.reload(bridging_teste)
         
         # Chama o motor mestre!
-        sucesso, mensagem = motor_mestre.gerar_gcode_sequencial(self.pecas_fila, nome_arquivo=nome_arquivo)
-        
-        if sucesso:
-            messagebox.showinfo("Sucesso", mensagem)
-        else:
-            messagebox.showerror("Erro de Geração", mensagem)
+        try:
+            sucesso, mensagem = motor_mestre.gerar_gcode_sequencial(self.pecas_fila, nome_arquivo=caminho_completo)
+            
+            if sucesso:
+                messagebox.showinfo("Sucesso", mensagem)
+            else:
+                messagebox.showerror("Erro de Geração", mensagem)
+        except Exception as e:
+            messagebox.showerror("Erro", str(e))
 
 if __name__ == "__main__":
     app = PrintQueueApp()

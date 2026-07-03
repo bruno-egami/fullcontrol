@@ -122,7 +122,10 @@ def gerar_gcode_sequencial(pecas_fila, nome_arquivo="sequencial_final"):
     largura_extrusao = float(configs_pecas[0].get('largura_extrusao', 3.0))
     altura_camada = float(configs_pecas[0].get('altura_camada', 1.0))
     
-    master_steps.append(fc.Printer(print_speed=750, travel_speed=1500))
+    velocidade_primeira_camada_inicial = float(configs_pecas[0].get('velocidade_primeira_camada', config_impressora.velocidade_primeira_camada)) * 60.0
+    velocidade_travel_inicial = float(configs_pecas[0].get('velocidade_travel', config_impressora.velocidade_travel)) * 60.0
+    
+    master_steps.append(fc.Printer(print_speed=velocidade_primeira_camada_inicial, travel_speed=velocidade_travel_inicial))
     master_steps.append(fc.ExtrusionGeometry(area_model='rectangle', width=largura_extrusao, height=altura_camada))
 
     for idx, cfg in enumerate(configs_pecas):

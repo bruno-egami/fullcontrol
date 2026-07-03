@@ -145,3 +145,6 @@ tmp/
 
 # Arquivos gerados
 *.gcode
+*.json
+desktop.ini
+[Dd]esktop.ini

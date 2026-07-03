@@ -15,5 +15,6 @@ G90          ; Modo absoluto
 M84          ; Desliga motores
 M300 P200    ; Bip final
 M107         ; Desliga fan
-M117 Print finish."""
+M117 Print finish.
+G28 ; homing"""
 }

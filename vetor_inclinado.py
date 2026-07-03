@@ -16,6 +16,7 @@ Dependências:
 
 import argparse
 import math
+import config_impressora
 import re
 import sys
 import glob
@@ -38,7 +39,7 @@ def gerar_passos_vetor(config):
     y_centro = config.get('y_centro', 45.0)
     z_max_desejado = config.get('z_max_desejado', 100.0)
     angulo_parede = config.get('angulo_parede', 80.0)
-    resolucao_mm = config.get('resolucao_mm', 1.0)
+    resolucao_mm = config.get('resolucao_mm', config_impressora.resolucao_mm)
     zonas_camadas = config.get('zonas_camadas', [
         {'camada_inicio': 0, 'num_perimetros': 0, 'infill_percent': 100.0, 'infill_pattern': 'concentric', 'fluxo_perimetro': 90.0, 'fluxo_infill': 100.0, 'espiral': False},
         {'camada_inicio': 4, 'num_perimetros': 1, 'infill_percent': 0.0, 'infill_pattern': 'concentric', 'fluxo_perimetro': 100.0, 'fluxo_infill': 100.0, 'espiral': True}
@@ -67,11 +68,11 @@ def gerar_passos_vetor(config):
     priming_infill_fim_vel = config.get('priming_infill_fim_vel', 2.0)
     NUM_CAMADAS_BASE_MACICA = int(config.get('num_camadas_base_macica', 4))
     sobreposicao_infill = config.get('sobreposicao_infill', 1.0)
-    velocidade_impressao = config.get('velocidade_impressao', 20.0) * 60.0
-    aceleracao_impressao = int(config.get('aceleracao_impressao', 500))
-    velocidade_primeira_camada = config.get('velocidade_primeira_camada', 10.0) * 60.0
-    aceleracao_primeira_camada = int(config.get('aceleracao_primeira_camada', 500))
-    velocidade_travel = config.get('velocidade_travel', 50.0) * 60.0
+    velocidade_impressao = config.get('velocidade_impressao', config_impressora.velocidade_impressao) * 60.0
+    aceleracao_impressao = int(config.get('aceleracao_impressao', config_impressora.aceleracao_impressao))
+    velocidade_primeira_camada = config.get('velocidade_primeira_camada', config_impressora.velocidade_primeira_camada) * 60.0
+    aceleracao_primeira_camada = int(config.get('aceleracao_primeira_camada', config_impressora.aceleracao_primeira_camada))
+    velocidade_travel = config.get('velocidade_travel', config_impressora.velocidade_travel) * 60.0
     # 2. PARSER DE ARQUIVOS VETORIAIS (SVG Nativo & DXF)
     # ==============================================================================
 

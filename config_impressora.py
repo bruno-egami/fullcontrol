@@ -47,3 +47,14 @@ mesa_x_min = 0.0
 mesa_x_max = 300.0
 mesa_y_min = 0.0
 mesa_y_max = 230.0
+
+# --- Cinematica e Extrusao (Globais) ---
+resolucao_mm = 1.0
+fluxo_perimetro = 100.0
+fluxo_infill = 100.0
+velocidade_primeira_camada = 7.5
+aceleracao_primeira_camada = 100
+velocidade_impressao = 7.5
+aceleracao_impressao = 100
+velocidade_travel = 50.0
+alternar_ordem_camadas = False

@@ -1,5 +1,6 @@
 import fullcontrol as fc
 import math
+import config_impressora
 
 def gerar_passos_bridging(config):
     passos = []

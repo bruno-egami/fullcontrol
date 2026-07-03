@@ -1,5 +1,6 @@
 import fullcontrol as fc
 import math
+import config_impressora
 
 def gerar_passos_cilindro(config):
     # --- Extração de Parâmetros da Configuração ---
@@ -23,9 +24,9 @@ def gerar_passos_cilindro(config):
     
     largura_extrusao = config.get('largura_extrusao', 3.0)
     altura_camada = config.get('altura_camada', 1.0)
-    resolucao_mm = config.get('resolucao_mm', 1.0)
+    resolucao_mm = config.get('resolucao_mm', config_impressora.resolucao_mm)
     
-    alternar_ordem_camadas = config.get('alternar_ordem_camadas', True)
+    alternar_ordem_camadas = config.get('alternar_ordem_camadas', config_impressora.alternar_ordem_camadas)
     angulo_infill_base = config.get('angulo_infill_base', 45.0)
     amplitude_gyroid = config.get('amplitude_gyroid', 2.0)
     comprimento_onda_gyroid = config.get('comprimento_onda_gyroid', 15.0)
@@ -37,6 +38,10 @@ def gerar_passos_cilindro(config):
     wipe_final_ativo = config.get('wipe_final_ativo', True)
     wipe_final_distancia = config.get('wipe_final_distancia', 6.0)
     wipe_final_subida_z = config.get('wipe_final_subida_z', 0.5)
+
+    velocidade_impressao = config.get('velocidade_impressao', config_impressora.velocidade_impressao) * 60.0
+    velocidade_primeira_camada = config.get('velocidade_primeira_camada', config_impressora.velocidade_primeira_camada) * 60.0
+    velocidade_travel = config.get('velocidade_travel', config_impressora.velocidade_travel) * 60.0
 
     steps = []
 
@@ -259,12 +264,17 @@ def gerar_passos_cilindro(config):
     # 4. GERAÇÃO DA PEÇA (Caminho Contínuo Total)
     # ==============================================================================
 
+    steps.append(fc.Printer(print_speed=velocidade_primeira_camada, travel_speed=velocidade_travel))
     steps.append(fc.Extruder(on=False))
     steps.append(fc.Point(x=x_centro - raio_p_outer, y=y_centro, z=altura_camada))
     steps.append(fc.Extruder(on=True))
 
     ultimo_era_espiral = False
     for camada in range(num_camadas):
+        if camada == 1:
+            steps.append(fc.ManualGcode(text=f"; --- RESTAURANDO VELOCIDADE NORMAL (CAMADA 2) ---"))
+            steps.append(fc.Printer(print_speed=velocidade_impressao, travel_speed=velocidade_travel))
+
         z_atual = altura_camada + (camada * altura_camada)
         eh_par = (camada % 2 == 0)
         
