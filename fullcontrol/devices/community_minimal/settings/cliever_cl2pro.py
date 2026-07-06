@@ -6,6 +6,7 @@ G90 ; use absolute coordinates
 M83 ; extruder relative mode
 M200 D0 ; disable volumetric E
 M220 S100 ; reset speed
+M221 S100 ; reset flow
 G28 ; home all axes""",
     "end_gcode": """;ENDGCODE
 G92 E0.0
